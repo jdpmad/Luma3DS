@@ -600,7 +600,11 @@ u32 patchNativeFirm(u32 firmVersion, FirmwareSource nandType, bool loadFromStora
     ret += patchSignatureChecks(process9Offset, process9Size);
 
     //Apply EmuNAND patches
-    if(nandType != FIRMWARE_SYSNAND) ret += patchEmuNand(process9Offset, process9Size, firmVersion);
+    if(nandType != FIRMWARE_SYSNAND)
+    {
+        ret += patchEmuNand(process9Offset, process9Size, firmVersion);
+        ret += patchNandInitFailure(process9Offset, process9Size); // dead-eMMC workaround
+    }
 
     //Apply FIRM0/1 writes patches on SysNAND to protect A9LH
     else if(isFirmProtEnabled) ret += patchFirmWrites(process9Offset, process9Size);

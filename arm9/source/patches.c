@@ -346,6 +346,38 @@ u32 patchSignatureChecks(u8 *pos, u32 size)
     return 0;
 }
 
+// Dead-eMMC workaround (personal fork): Process9 has a generic "initialize storage device" wrapper that returns the
+// error code of the device's virtual init() (vtable+0x1c) and then makes the caller abort (svcBreak) on failure.
+// With a dead/absent eMMC the NAND init always fails, even though EmuNAND never touches the real chip.
+// Turn the "blt <return error>" after init() into a nop, so init failure is ignored and the device is marked ready.
+// Not fatal if the pattern isn't found (other firmware versions).
+u32 patchNandInitFailure(u8 *pos, u32 size)
+{
+    static const u8 pattern[] = {
+        0x10, 0xB5,  // push {r4, lr}
+        0x04, 0x00,  // movs r4, r0
+        0x00, 0x68,  // ldr r0, [r0]
+        0x81, 0x69,  // ldr r1, [r0, #0x18]
+        0x20, 0x00,  // movs r0, r4
+        0x88, 0x47,  // blx r1
+        0x00, 0x28,  // cmp r0, #0
+        0x07, 0xD1,  // bne +
+        0x20, 0x68,  // ldr r0, [r4]
+        0xC1, 0x69,  // ldr r1, [r0, #0x1C]   (device init())
+        0x20, 0x00,  // movs r0, r4
+        0x88, 0x47,  // blx r1
+        0x00, 0x28,  // cmp r0, #0
+        0x02, 0xDB   // blt <return error>    <-- patched to nop
+    };
+
+    u8 *off = memsearch(pos, pattern, size, sizeof(pattern));
+    if(off == NULL) return 0;
+
+    *(u16 *)(off + sizeof(pattern) - 2) = 0x46C0; // mov r8, r8 (nop)
+
+    return 0;
+}
+
 u32 patchOldSignatureChecks(u8 *pos, u32 size)
 {
     // Look for signature checks
