@@ -27,7 +27,6 @@
 #include "arm9_exception_handlers.h"
 #include "i2c.h"
 #include "screen.h"
-#include "fatfs/sdmmc/sdmmc.h"
 
 #define FINAL_BUFFER    0x25000000
 
@@ -78,8 +77,7 @@ void __attribute__((noreturn)) arm9ExceptionHandlerMain(u32 *registerDump, u32 t
     final += safecpy(final, codeDump, dumpHeader.codeDumpSize);
 
     //Dump stack in place
-    // Debug (dead-eMMC fork): dump the stack starting 0x200 bytes BELOW sp (freed frames hold the error codes)
-    dumpHeader.stackDumpSize = safecpy(final, (const void *)(registerDump[13] - 0x200), 0xC00);
+    dumpHeader.stackDumpSize = safecpy(final, (const void *)registerDump[13], 0x1000 - (registerDump[13] & 0xFFF));
     final += dumpHeader.stackDumpSize;
 
     // See if we need to copy Arm9 memory (check for bkpt 0xFFFD / bkpt 0xFD)
@@ -104,31 +102,6 @@ void __attribute__((noreturn)) arm9ExceptionHandlerMain(u32 *registerDump, u32 t
 
     //Copy header (actually optimized by the compiler)
     *(ExceptionDumpHeader *)FINAL_BUFFER = dumpHeader;
-
-    // Debug (dead-eMMC fork): persist the dump to raw SD sectors 2..10 (offset 0x400)
-    // extra debug data inside the 9 written sectors:
-    // +0x1000: 0x60 bytes of P9 SD device struct (0x080F74A0, O3DS 11.17)
-    // +0x1060: 0x1A0 bytes of P9 NAND device struct (0x080F7148, O3DS 11.17)
-    safecpy((void *)(FINAL_BUFFER + 0x1000), (const void *)0x080F74A0, 0x40);
-    // +0x1040: CID source info (no CID bytes), +0x1044..: 8 bytes (magic+flags only) of the movable.sed read buffer (0x080DD820)
-    {
-        extern u32 nandInitHookCidInfo;
-        *(vu32 *)(FINAL_BUFFER + 0x1040) = nandInitHookCidInfo;
-        safecpy((void *)(FINAL_BUFFER + 0x1044), (const void *)0x080DD820, 8);
-        // +0x104C: 0x24 bytes of the P9 NAND-crypto context (main object 0x080D7880 + 0x48, derived from the CID)
-        safecpy((void *)(FINAL_BUFFER + 0x1070 - 0x24), (const void *)(0x080D7880 + 0x48), 0x24);
-    }
-    safecpy((void *)(FINAL_BUFFER + 0x1070), (const void *)0x080F7148, 0x190);
-    // +0xD00: NAND I/O log from emunandPatch: count, then (at +0xD10) 32 entries {part obj, dev ptr, base sector, byte offset}
-    {
-        extern u32 emunandIoLogCount, emunandIoLog[];
-        *(vu32 *)(FINAL_BUFFER + 0xD00) = emunandIoLogCount;
-        safecpy((void *)(FINAL_BUFFER + 0xD10), (const void *)emunandIoLog, 0x200);
-    }
-    for(u32 i = 0x0C; i < 0x1C; i++) *(vu8 *)(FINAL_BUFFER + 0x1070 + i) = 0xEE; // don't leak the CID into the dump
-
-    sdmmc_sdcard_init_sd_only();
-    sdmmc_sdcard_writesectors(2, 9, (const u8 *)FINAL_BUFFER);
 
     if(ARESCREENSINITIALIZED) I2C_writeReg(I2C_DEV_MCU, 0x22, 1 << 0); //Shutdown LCD
 

@@ -5,7 +5,7 @@
 @ success and fix the fields Process9 uses afterwards:
 @  - clear the error flags, mark the card as ready
 @  - CSD C_SIZE_MULT 6 -> 7 (512 MB -> 1 GB, the dead chip reports half the size)
-@  - CID = the real console CID (luma/nand_cid.bin), if provided
+@  - CID = the one that decrypts this EmuNAND (chosen in patchNandInitFailure)
 
 .section .emunand_patch, "aw", %progbits
 .arm
@@ -51,19 +51,13 @@ nandInitHook:
     stmia r0, {r1-r3, r12}
 
 _nandOut:
-    @ debug: test whether Process9 can write to Luma's ITCM area (bit 28 of nandInitHookCidInfo)
-    ldr r1, =nandInitHookCidInfo
-    ldr r2, [r1]
-    orr r2, r2, #0x10000000
-    str r2, [r1]
     mov r0, #0
     pop {r4, pc}
 
 .pool
 
-.global nandInitHookOrigFunc, nandInitHookGetStruct, nandInitHookCidValid, nandInitHookCid, nandInitHookCidInfo
+.global nandInitHookOrigFunc, nandInitHookGetStruct, nandInitHookCidValid, nandInitHookCid
 nandInitHookOrigFunc:  .word 0
 nandInitHookGetStruct: .word 0
 nandInitHookCidValid:  .word 0
 nandInitHookCid:       .word 0, 0, 0, 0
-nandInitHookCidInfo:   .word 0

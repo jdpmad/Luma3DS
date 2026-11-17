@@ -480,10 +480,3 @@ u32 sdmmc_sdcard_init()
     if(SD_Init() != 0) ret |= 2;
     return ret;
 }
-
-// Debug (dead-eMMC fork): init only the SD card, never touch the (dead) NAND. Used from the exception handler.
-u32 sdmmc_sdcard_init_sd_only()
-{
-    InitSD();
-    return SD_Init() != 0 ? 2 : 0;
-}

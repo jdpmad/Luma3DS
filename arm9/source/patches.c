@@ -347,13 +347,15 @@ u32 patchSignatureChecks(u8 *pos, u32 size)
     return 0;
 }
 
-// Dead-eMMC workaround (personal fork): Process9 has a generic "initialize storage device" wrapper that returns the
-// error code of the device's virtual init() (vtable+0x1c) and then makes the caller abort (svcBreak) on failure.
-// With a dead/absent eMMC the NAND init always fails, even though EmuNAND never touches the real chip.
-// Turn the "blt <return error>" after init() into a nop, so init failure is ignored and the device is marked ready.
-// Not fatal if the pattern isn't found (other firmware versions).
+// Dead-eMMC workaround (personal fork, O3DS 11.17 EmuNAND):
+// When the eMMC is dead, Process9's init of the NAND device (id 0x101) times out and the FS module aborts, even though
+// every NAND access is redirected to the SD card by the EmuNAND patch. We hook Process9's "init storage device by id"
+// so that for the eMMC it reports success with sane values (ready flags, 1 GB capacity) and a CID that actually
+// decrypts this EmuNAND's CTRNAND (the CTR key is derived from SHA256(CID)).
+// Only applied when the eMMC returns an all-zero CID (i.e. it is dead) and the patterns are found; otherwise no-op.
 extern u8 nandInitHook[];
-extern u32 nandInitHookOrigFunc, nandInitHookGetStruct, nandInitHookCidValid, nandInitHookCid[4], nandInitHookCidInfo;
+extern u32 nandInitHookOrigFunc, nandInitHookGetStruct, nandInitHookCidValid, nandInitHookCid[4];
+extern int ctrNandTestCid(const u8 *cid);
 
 static u32 thumbBlTarget(u32 va, const u16 *ins)
 {
@@ -362,114 +364,47 @@ static u32 thumbBlTarget(u32 va, const u16 *ins)
     return va + 4 + off;
 }
 
-// Dead-eMMC workaround: hook Process9's SD/MMC init-by-id so that the eMMC (id 0x101) init "succeeds".
 u32 patchNandInitFailure(u8 *pos, u32 size, u32 process9MemAddr)
 {
     // push {r4, lr} ; bl init(id) ; pop {r4, pc}   (preceded by the end of the previous function)
     static const u8 sitePattern[] = {0x21, 0xF9, 0x10, 0xBD, 0x10, 0xB5, 0xFE, 0xF7, 0x07, 0xFC, 0x10, 0xBD};
     // device struct getter: subs r0,#0xff ; subs r0,#1 ; beq ; cmp r0,#1 ; beq ; movs r0,#0 ; bx lr
     static const u8 getterPattern[] = {0xFF, 0x38, 0x01, 0x38, 0x05, 0xD0, 0x01, 0x28, 0x01, 0xD0, 0x00, 0x20, 0x70, 0x47};
+    static const u8 zeroCid[16] = {0};
+
+    // Healthy eMMC: nothing to do
+    __attribute__((aligned(4))) u8 cid[16], fileCid[16];
+    sdmmc_get_cid(true, (u32 *)cid);
+    for(u32 i = 0; i < 16; i++) if(cid[i] != 0) return 0;
 
     u8 *site = memsearch(pos, sitePattern, size, sizeof(sitePattern));
     u8 *getter = memsearch(pos, getterPattern, size, sizeof(getterPattern));
-    if(site == NULL || getter == NULL) return 1;
+    if(site == NULL || getter == NULL) return 0;
     site += 4;
 
     u32 siteVA = process9MemAddr + (u32)(site - pos);
+    if((siteVA & 3) != 0) return 0; // the 8-byte slot is word aligned on 11.17; don't patch blindly otherwise
+
     nandInitHookOrigFunc = thumbBlTarget(siteVA + 2, (const u16 *)(site + 2)) | 1;
     nandInitHookGetStruct = (process9MemAddr + (u32)(getter - pos)) | 1;
 
-    // CID: Luma decrypts CTRNAND (to load this very FIRM) with the CID it reads via CMD10, so prefer that one.
-    // Fall back to luma/nand_cid.bin (from essential.exefs) if CMD10 returns all zeros.
-    // nandInitHookCidInfo (debug): bit0 file present, bit1 file == CMD10 CID, bit2 CMD10 CID non-zero, bit3 used file
-    // nandInitHookCidInfo (debug): bit0 file present, bit1 file == CMD10 CID (now), bit2 CMD10 CID (now) non-zero,
-    // bit3 used file, bit4 boot-time CID non-zero, bit5 file == boot-time CID, bit6 used boot-time CID
-    extern u8 lumaBootCid[16];
-    extern bool lumaBootCidSet;
-    __attribute__((aligned(4))) u8 cid[16], fileCid[16];
-    u32 info = 0;
-    bool haveCid = false;
+    // CID candidates: the console's real CID (luma/nand_cid.bin, from essential.exefs), then all zeros
+    // (an EmuNAND written while the eMMC was already dead gets encrypted with a zero CID). Use the first one
+    // that decrypts the CTRNAND MBR; if none does, prefer the file.
+    bool fileOk = fileRead(fileCid, "sdmc:/luma/nand_cid.bin", sizeof(fileCid)) == sizeof(fileCid);
+    const u8 *chosen = NULL;
+    if(fileOk && ctrNandTestCid(fileCid) == 1) chosen = fileCid;
+    else if(ctrNandTestCid(zeroCid) == 1) chosen = zeroCid;
+    else chosen = fileOk ? fileCid : zeroCid;
 
-    sdmmc_get_cid(true, (u32 *)cid);
-    bool cmd10Valid = false;
-    for(u32 i = 0; i < 16; i++) if(cid[i] != 0) cmd10Valid = true;
-    if(cmd10Valid) info |= 4;
+    memcpy(nandInitHookCid, chosen, 16);
+    nandInitHookCidValid = 1;
 
-    bool bootValid = false;
-    if(lumaBootCidSet) for(u32 i = 0; i < 16; i++) if(lumaBootCid[i] != 0) bootValid = true;
-    if(bootValid) info |= 0x10;
-
-    bool fileOk = fileRead(fileCid, "sdmc:/luma/nand_cid.bin", sizeof(fileCid)) == sizeof(fileCid) ||
-                  fileRead(fileCid, "sdmc:/luma/nand_cid.bin.bin", sizeof(fileCid)) == sizeof(fileCid) ||
-                  fileRead(fileCid, "sdmc:/luma/nand_cid", sizeof(fileCid)) == sizeof(fileCid);
-    if(fileOk)
-    {
-        info |= 1;
-        if(memcmp(fileCid, cid, 16) == 0) info |= 2;
-        if(bootValid && memcmp(fileCid, lumaBootCid, 16) == 0) info |= 0x20;
-    }
-
-    // Pick the CID that actually decrypts this (emu)NAND's CTR MBR. Candidates: boot-time CID, file, CMD10 now, all zeros
-    // (an emuNAND made while the eMMC was already dead may have been encrypted with a zero CID).
-    // nibbles: bits 8-11 file, 12-15 boot, 16-19 CMD10, 20-23 zero CID (1 = decrypts OK, 2 = no, 3 = read error, 0 = not tested)
-    // bits 24-27: chosen candidate (1 file, 2 boot, 3 CMD10, 4 zero, 0 = none passed -> old priority)
-    {
-        extern int ctrNandTestCid(const u8 *cid);
-        static const u8 zeroCid[16] = {0};
-        const u8 *cands[4] = { fileOk ? fileCid : NULL, bootValid ? lumaBootCid : NULL, cmd10Valid ? cid : NULL, zeroCid };
-        const u8 *chosen = NULL;
-        for(u32 k = 0; k < 4; k++)
-        {
-            if(cands[k] == NULL) continue;
-            int r = ctrNandTestCid(cands[k]);
-            info |= (u32)(r == 1 ? 1 : r == 0 ? 2 : 3) << (8 + 4 * k);
-            if(r == 1 && chosen == NULL) { chosen = cands[k]; info |= (k + 1) << 24; }
-        }
-        if(chosen != NULL)
-        {
-            if(chosen != cid) memcpy(cid, chosen, 16);
-            haveCid = true;
-        }
-    }
-
-    // Fallback priority if no candidate decrypted: boot-time CID, then the file, then CMD10 now
-    if(!haveCid)
-    {
-        if(bootValid) { memcpy(cid, lumaBootCid, 16); info |= 0x40; haveCid = true; }
-        else if(fileOk) { memcpy(cid, fileCid, 16); info |= 8; haveCid = true; }
-        else if(cmd10Valid) haveCid = true;
-    }
-
-    if(haveCid)
-    {
-        memcpy(nandInitHookCid, cid, sizeof(cid));
-        nandInitHookCidValid = 1;
-    }
-    nandInitHookCidInfo = info;
-
-    // DEBUG: at the next abort site (FS/CTRNAND init, 0x0802A018 on 11.17) fault with the result code in r0
-    // instead of svcBreak (which loses it): "bl abort" -> "str r0, [r0]; nop"
-    {
-        static const u8 abortSite[] = {0x10, 0xB5, 0x01, 0xF0, 0x1B, 0xF9, 0x00, 0x28, 0x01, 0xDA, 0x37, 0xF0, 0xEB, 0xFD, 0x10, 0xBD};
-        u8 *a = memsearch(pos, abortSite, size, sizeof(abortSite));
-        if(a != NULL)
-        {
-            *(u16 *)(a + 10) = 0x6000; // str r0, [r0]
-            *(u16 *)(a + 12) = 0x46C0; // nop
-        }
-    }
-
-    // replace the 8-byte function with: ldr r1, [pc, #x] ; bx r1 ; (nop) ; .word nandInitHook
+    // replace the 8-byte function with: ldr r1, [pc, #0] ; bx r1 ; .word nandInitHook
     u16 *t = (u16 *)site;
-    if((siteVA & 3) == 0)
-    {
-        t[0] = 0x4900; t[1] = 0x4708;
-        *(u32 *)(site + 4) = (u32)nandInitHook;
-    }
-    else
-    {
-        return 1; // not expected (8-byte slot is word aligned on 11.17), don't patch blindly
-    }
+    t[0] = 0x4900; t[1] = 0x4708;
+    *(u32 *)(site + 4) = (u32)nandInitHook;
+
     return 0;
 }
 

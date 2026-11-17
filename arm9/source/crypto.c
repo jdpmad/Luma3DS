@@ -333,17 +333,12 @@ __attribute__((aligned(4))) static const u8 key1s[2][AES_BLOCK_SIZE] = {
     {0xFF, 0x77, 0xA0, 0x9A, 0x99, 0x81, 0xE9, 0x48, 0xEC, 0x51, 0xC9, 0x32, 0x5D, 0x14, 0xEC, 0x25}
 };
 
-// Dead-eMMC fork: CID read at boot (the one Luma uses to decrypt CTRNAND)
-u8 lumaBootCid[16];
-bool lumaBootCidSet = false;
-
 int ctrNandInit(void)
 {
     __attribute__((aligned(4))) u8 cid[AES_BLOCK_SIZE],
                                    shaSum[SHA_256_HASH_SIZE];
 
     sdmmc_get_cid(1, (u32 *)cid);
-    if(!lumaBootCidSet) { memcpy(lumaBootCid, cid, 16); lumaBootCidSet = true; }
     sha(shaSum, cid, sizeof(cid), SHA_256_MODE);
     memcpy(nandCtr, shaSum, sizeof(nandCtr));
 
@@ -372,8 +367,7 @@ int ctrNandInit(void)
     return result;
 }
 
-
-// Dead-eMMC fork (debug): check whether a candidate CID decrypts this (emu)NAND's CTR MBR (0x55AA signature).
+// Dead-eMMC fork: check whether a candidate CID decrypts this (emu)NAND's CTR MBR (0x55AA signature).
 // Returns 1 if it does, 0 if not, negative on read error. Does not change the global CTRNAND state.
 int ctrNandTestCid(const u8 *cid)
 {
@@ -381,7 +375,7 @@ int ctrNandTestCid(const u8 *cid)
 
     int result = ctrNandLocation == FIRMWARE_SYSNAND ? sdmmc_nand_readsectors(0, 1, temp) : sdmmc_sdcard_readsectors(emuOffset + emuHeader, 1, temp);
     if(result) return -1;
-    if(memcmp(temp + 0x100, "NCSD", 4) != 0) return -2;
+    if(temp[0x100] != 'N' || temp[0x101] != 'C' || temp[0x102] != 'S' || temp[0x103] != 'D') return -2;
 
     u32 partitionNum = 1;
     for(u8 *partitionId = temp + 0x111; *partitionId != 1 && partitionNum < 8; partitionId++, partitionNum++);
