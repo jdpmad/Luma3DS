@@ -351,6 +351,8 @@ u32 patchSignatureChecks(u8 *pos, u32 size)
 // With a dead/absent eMMC the NAND init always fails, even though EmuNAND never touches the real chip.
 // Turn the "blt <return error>" after init() into a nop, so init failure is ignored and the device is marked ready.
 // Not fatal if the pattern isn't found (other firmware versions).
+extern u8 dbgInitWrapperHook[];
+
 u32 patchNandInitFailure(u8 *pos, u32 size)
 {
     // Generic Process9 "init device if not initialized" wrapper (0x08060A46 on O3DS 11.17).
@@ -360,33 +362,28 @@ u32 patchNandInitFailure(u8 *pos, u32 size)
         0x00, 0x20, 0x10, 0xBD
     };
 
-    // DEBUG version: identical behaviour on success, but on init failure execute "str r0, [r0]"
-    // so the exception handler dumps r0 = error code, r4 = device object (+ its vtable).
-    static const u8 debugCode[] = {
-        0x10, 0xB5,  // push {r4, lr}
-        0x04, 0x00,  // movs r4, r0
-        0x01, 0x68,  // ldr r1, [r0]
-        0x89, 0x69,  // ldr r1, [r1, #0x18]   isInitialized()
-        0x88, 0x47,  // blx r1
-        0x00, 0x28,  // cmp r0, #0
-        0x08, 0xD1,  // bne ret0
-        0x20, 0x68,  // ldr r0, [r4]
-        0xC1, 0x69,  // ldr r1, [r0, #0x1C]   init()
-        0x20, 0x00,  // movs r0, r4
-        0x88, 0x47,  // blx r1
-        0x00, 0x28,  // cmp r0, #0
-        0x00, 0xDA,  // bge ok
-        0x00, 0x60,  // str r0, [r0]          <-- init failed: r0 = error code, faults (data abort)
-        0x01, 0x20,  // ok: movs r0, #1
-        0x20, 0x73,  // strb r0, [r4, #0xC]
-        0x00, 0x20,  // ret0: movs r0, #0
-        0x10, 0xBD   // pop {r4, pc}
-    };
-
     u8 *off = memsearch(pos, pattern, size, sizeof(pattern));
     if(off == NULL) return 0;
 
-    memcpy(off, debugCode, sizeof(debugCode));
+    // clear the failure log (read back by the exception handler)
+    for(u32 i = 0; i < 0x100; i += 4) *(vu32 *)(0x25001F00 + i) = 0;
+
+    // Redirect the whole wrapper to dbgInitWrapperHook (ARM code in ITCM, see dbg_init_hook.s):
+    //   ldr r1, [pc, #x] ; bx r1 ; (nop) ; .word hook
+    u16 *t = (u16 *)off;
+    if(((u32)off & 3) == 0)
+    {
+        t[0] = 0x4900; // ldr r1, [pc, #0] -> off + 4
+        t[1] = 0x4708; // bx r1
+        *(u32 *)(off + 4) = (u32)dbgInitWrapperHook;
+    }
+    else
+    {
+        t[0] = 0x4901; // ldr r1, [pc, #4] -> off + 6
+        t[1] = 0x4708; // bx r1
+        t[2] = 0x46C0; // nop
+        *(u32 *)(off + 6) = (u32)dbgInitWrapperHook;
+    }
     return 0;
 }
 
