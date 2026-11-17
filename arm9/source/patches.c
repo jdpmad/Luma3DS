@@ -351,44 +351,52 @@ u32 patchSignatureChecks(u8 *pos, u32 size)
 // With a dead/absent eMMC the NAND init always fails, even though EmuNAND never touches the real chip.
 // Turn the "blt <return error>" after init() into a nop, so init failure is ignored and the device is marked ready.
 // Not fatal if the pattern isn't found (other firmware versions).
-extern u8 dbgInitWrapperHook[];
+extern u8 nandInitHook[];
+extern u32 nandInitHookOrigFunc, nandInitHookGetStruct, nandInitHookCidValid, nandInitHookCid[4];
 
-u32 patchNandInitFailure(u8 *pos, u32 size)
+static u32 thumbBlTarget(u32 va, const u16 *ins)
 {
-    (void)dbgInitWrapperHook; (void)pos; (void)size;
-    return 0; // DEBUG v11: patch disabled, let Process9 abort at the original place
-#if 0
-    // Generic Process9 "init device if not initialized" wrapper (0x08060A46 on O3DS 11.17).
-    static const u8 pattern[] = {
-        0x10, 0xB5, 0x04, 0x00, 0x00, 0x68, 0x81, 0x69, 0x20, 0x00, 0x88, 0x47, 0x00, 0x28, 0x07, 0xD1,
-        0x20, 0x68, 0xC1, 0x69, 0x20, 0x00, 0x88, 0x47, 0x00, 0x28, 0x02, 0xDB, 0x01, 0x20, 0x20, 0x73,
-        0x00, 0x20, 0x10, 0xBD
-    };
+    s32 off = ((ins[0] & 0x7FF) << 12) | ((ins[1] & 0x7FF) << 1);
+    if(off & 0x400000) off -= 0x800000;
+    return va + 4 + off;
+}
 
-    u8 *off = memsearch(pos, pattern, size, sizeof(pattern));
-    if(off == NULL) return 0;
+// Dead-eMMC workaround: hook Process9's SD/MMC init-by-id so that the eMMC (id 0x101) init "succeeds".
+u32 patchNandInitFailure(u8 *pos, u32 size, u32 process9MemAddr)
+{
+    // push {r4, lr} ; bl init(id) ; pop {r4, pc}   (preceded by the end of the previous function)
+    static const u8 sitePattern[] = {0x21, 0xF9, 0x10, 0xBD, 0x10, 0xB5, 0xFE, 0xF7, 0x07, 0xFC, 0x10, 0xBD};
+    // device struct getter: subs r0,#0xff ; subs r0,#1 ; beq ; cmp r0,#1 ; beq ; movs r0,#0 ; bx lr
+    static const u8 getterPattern[] = {0xFF, 0x38, 0x01, 0x38, 0x05, 0xD0, 0x01, 0x28, 0x01, 0xD0, 0x00, 0x20, 0x70, 0x47};
 
-    // clear the failure log (read back by the exception handler)
-    for(u32 i = 0; i < 0x100; i += 4) *(vu32 *)(0x25001F00 + i) = 0;
+    u8 *site = memsearch(pos, sitePattern, size, sizeof(sitePattern));
+    u8 *getter = memsearch(pos, getterPattern, size, sizeof(getterPattern));
+    if(site == NULL || getter == NULL) return 1;
+    site += 4;
 
-    // Redirect the whole wrapper to dbgInitWrapperHook (ARM code in ITCM, see dbg_init_hook.s):
-    //   ldr r1, [pc, #x] ; bx r1 ; (nop) ; .word hook
-    u16 *t = (u16 *)off;
-    if(((u32)off & 3) == 0)
+    u32 siteVA = process9MemAddr + (u32)(site - pos);
+    nandInitHookOrigFunc = thumbBlTarget(siteVA + 2, (const u16 *)(site + 2)) | 1;
+    nandInitHookGetStruct = (process9MemAddr + (u32)(getter - pos)) | 1;
+
+    u8 cid[16];
+    if(fileRead(cid, "nand_cid.bin", sizeof(cid)) == sizeof(cid))
     {
-        t[0] = 0x4900; // ldr r1, [pc, #0] -> off + 4
-        t[1] = 0x4708; // bx r1
-        *(u32 *)(off + 4) = (u32)dbgInitWrapperHook;
+        memcpy(nandInitHookCid, cid, sizeof(cid));
+        nandInitHookCidValid = 1;
+    }
+
+    // replace the 8-byte function with: ldr r1, [pc, #x] ; bx r1 ; (nop) ; .word nandInitHook
+    u16 *t = (u16 *)site;
+    if((siteVA & 3) == 0)
+    {
+        t[0] = 0x4900; t[1] = 0x4708;
+        *(u32 *)(site + 4) = (u32)nandInitHook;
     }
     else
     {
-        t[0] = 0x4901; // ldr r1, [pc, #4] -> off + 6
-        t[1] = 0x4708; // bx r1
-        t[2] = 0x46C0; // nop
-        *(u32 *)(off + 6) = (u32)dbgInitWrapperHook;
+        return 1; // not expected (8-byte slot is word aligned on 11.17), don't patch blindly
     }
     return 0;
-#endif
 }
 
 u32 patchOldSignatureChecks(u8 *pos, u32 size)
