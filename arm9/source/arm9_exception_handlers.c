@@ -44,49 +44,6 @@ static inline void dumpArm9Memory(ExceptionDumpHeader *dumpHeader, u8 *buf)
     dumpHeader->additionalDataSize += safecpy(buf, (const void *)0x08000000, size);
 }
 
-
-// Debug (dead-eMMC fork): draw the register dump on screen, since the RAM dump is lost on power cycle.
-// Everything here must live in ITCM (font is placed in the handler section, no rodata/libc use).
-__attribute__((section(".arm9_exception_handlers.text.font")))
-static const u16 dbgFont[16] = {0x7B6F, 0x2C97, 0x73E7, 0x73CF, 0x5BC9, 0x79CF, 0x79EF, 0x7249, 0x7BEF, 0x7BCF, 0x7BED, 0x6BAE, 0x7927, 0x6B6E, 0x79E7, 0x79E4};
-
-static void dbgHex(u8 *fb, u32 x, u32 y, u32 val, u32 rgb)
-{
-    for(u32 d = 0; d < 8; d++)
-    {
-        u16 g = dbgFont[(val >> (28 - 4 * d)) & 0xF];
-        for(u32 gy = 0; gy < 5; gy++)
-            for(u32 gx = 0; gx < 3; gx++)
-                if((g >> (14 - (gy * 3 + gx))) & 1)
-                    for(u32 sy = 0; sy < 3; sy++)
-                        for(u32 sx = 0; sx < 3; sx++)
-                        {
-                            u32 px = x + d * 12 + gx * 3 + sx;
-                            u32 py = y + gy * 3 + sy;
-                            u8 *p = fb + (px * 240 + (239 - py)) * 3;
-                            p[0] = rgb; p[1] = rgb >> 8; p[2] = rgb >> 16;
-                        }
-    }
-}
-
-static void dbgDraw(u8 *fb, u32 *regs, u32 type)
-{
-    if((u32)fb < 0x18000000 || (u32)fb >= 0x18600000) return;
-    // clear background to dark red so we can tell the dump was drawn
-    for(u32 i = 0; i < 400 * 240; i++) { fb[i*3] = 0; fb[i*3+1] = 0; fb[i*3+2] = 0x40; }
-    // col0: type, R0-R7 | col1: R8-R12,SP,LR,PC,CPSR | col2: 9 stack words
-    dbgHex(fb, 8, 8, type, 0xFFFF00);
-    for(u32 i = 0; i < 8; i++) dbgHex(fb, 8, 8 + 24 * (i + 1), regs[i], 0xFFFFFF);
-    for(u32 i = 0; i < 9; i++) dbgHex(fb, 140, 8 + 24 * i, regs[8 + i], i >= 6 ? 0x00FF00 : 0xFFFFFF);
-    u32 sp = regs[13];
-    for(u32 i = 0; i < 9; i++)
-    {
-        u32 v = 0;
-        safecpy(&v, (const void *)(sp + 4 * i), 4);
-        dbgHex(fb, 272, 8 + 24 * i, v, 0x00FFFF);
-    }
-}
-
 void __attribute__((noreturn)) arm9ExceptionHandlerMain(u32 *registerDump, u32 type)
 {
     ExceptionDumpHeader dumpHeader;
@@ -147,17 +104,11 @@ void __attribute__((noreturn)) arm9ExceptionHandlerMain(u32 *registerDump, u32 t
     //Copy header (actually optimized by the compiler)
     *(ExceptionDumpHeader *)FINAL_BUFFER = dumpHeader;
 
-    // Debug: persist the dump to raw SD sectors 2..10 (offset 0x400), like the community builds do
+    // Debug (dead-eMMC fork): persist the dump to raw SD sectors 2..10 (offset 0x400)
     sdmmc_sdcard_init();
     sdmmc_sdcard_writesectors(2, 9, (const u8 *)FINAL_BUFFER);
 
-    // Debug: show registers on screen and halt instead of rebooting
-    dbgDraw((u8 *)0x18300000, registerDump, type);
-    dbgDraw((u8 *)0x18400000, registerDump, type);
-    dbgDraw((u8 *)*(vu32 *)0x10400468, registerDump, type);
-    dbgDraw((u8 *)*(vu32 *)0x10400494, registerDump, type);
-    ((void (*)())0xFFFF0830)();
-    while(true);
+    if(ARESCREENSINITIALIZED) I2C_writeReg(I2C_DEV_MCU, 0x22, 1 << 0); //Shutdown LCD
 
     ((void (*)())0xFFFF0830)(); //Ensure that all memory transfers have completed and that the data cache has been flushed
 
