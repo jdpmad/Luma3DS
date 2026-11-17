@@ -409,6 +409,18 @@ u32 patchNandInitFailure(u8 *pos, u32 size, u32 process9MemAddr)
     }
     nandInitHookCidInfo = info;
 
+    // DEBUG: at the next abort site (FS/CTRNAND init, 0x0802A018 on 11.17) fault with the result code in r0
+    // instead of svcBreak (which loses it): "bl abort" -> "str r0, [r0]; nop"
+    {
+        static const u8 abortSite[] = {0x10, 0xB5, 0x01, 0xF0, 0x1B, 0xF9, 0x00, 0x28, 0x01, 0xDA, 0x37, 0xF0, 0xEB, 0xFD, 0x10, 0xBD};
+        u8 *a = memsearch(pos, abortSite, size, sizeof(abortSite));
+        if(a != NULL)
+        {
+            *(u16 *)(a + 10) = 0x6000; // str r0, [r0]
+            *(u16 *)(a + 12) = 0x46C0; // nop
+        }
+    }
+
     // replace the 8-byte function with: ldr r1, [pc, #x] ; bx r1 ; (nop) ; .word nandInitHook
     u16 *t = (u16 *)site;
     if((siteVA & 3) == 0)
