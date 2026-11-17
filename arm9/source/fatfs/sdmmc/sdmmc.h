@@ -93,6 +93,7 @@ typedef struct mmcdevice {
 
 u32 sdmmc_sdcard_init();
 u32 sdmmc_sdcard_init_sd_only();
+extern u32 sdmmc_debug_timeout;
 int sdmmc_sdcard_readsectors(u32 sector_no, u32 numsectors, u8 *out);
 int sdmmc_sdcard_writesectors(u32 sector_no, u32 numsectors, const u8 *in);
 int sdmmc_nand_readsectors(u32 sector_no, u32 numsectors, u8 *out);

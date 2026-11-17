@@ -105,17 +105,19 @@ void __attribute__((noreturn)) arm9ExceptionHandlerMain(u32 *registerDump, u32 t
     *(ExceptionDumpHeader *)FINAL_BUFFER = dumpHeader;
 
     // Debug (dead-eMMC fork): persist the dump to raw SD sectors 2..10 (offset 0x400)
-    // extra debug data at +0x1200: 0x200 bytes at r4, 0x200 bytes at *(u32 *)r4 (vtable)
+    // extra debug data (stays inside the 9 sectors we write, i.e. SD 0x400..0x13FF):
+    // +0x10A0: 0xB0 bytes at r4 (object), +0x1150: 0xB0 bytes at *(u32 *)r4 (vtable)
     {
-        u8 *extra = (u8 *)(FINAL_BUFFER + 0x1200);
-        for(u32 i = 0; i < 0x400; i++) extra[i] = 0;
-        safecpy(extra, (const void *)registerDump[4], 0x200);
+        u8 *extra = (u8 *)(FINAL_BUFFER + 0x10A0);
+        for(u32 i = 0; i < 0x160; i++) extra[i] = 0;
+        safecpy(extra, (const void *)registerDump[4], 0xB0);
         u32 vt = 0;
         safecpy(&vt, (const void *)registerDump[4], 4);
-        safecpy(extra + 0x200, (const void *)vt, 0x200);
+        safecpy(extra + 0xB0, (const void *)vt, 0xB0);
     }
+    sdmmc_debug_timeout = 1;
     sdmmc_sdcard_init_sd_only();
-    sdmmc_sdcard_writesectors(2, 11, (const u8 *)FINAL_BUFFER);
+    sdmmc_sdcard_writesectors(2, 9, (const u8 *)FINAL_BUFFER);
 
     if(ARESCREENSINITIALIZED) I2C_writeReg(I2C_DEV_MCU, 0x22, 1 << 0); //Shutdown LCD
 

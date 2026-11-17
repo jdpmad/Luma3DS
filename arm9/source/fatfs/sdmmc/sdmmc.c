@@ -25,6 +25,9 @@
 #include "sdmmc.h"
 #include "delay.h"
 
+// Debug (dead-eMMC fork): bounded waits when called from the exception handler
+u32 sdmmc_debug_timeout = 0;
+
 static struct mmcdevice handleNAND;
 static struct mmcdevice handleSD;
 
@@ -93,7 +96,11 @@ static void __attribute__((noinline)) sdmmc_send_command(struct mmcdevice *ctx, 
         flags |= TMIO_STAT0_DATAEND;
 
     ctx->error = 0;
-    while((sdmmc_read16(REG_SDSTATUS1) & TMIO_STAT1_CMD_BUSY)); //mmc working?
+    u32 dbgCnt = 0;
+    while((sdmmc_read16(REG_SDSTATUS1) & TMIO_STAT1_CMD_BUSY)) //mmc working?
+    {
+        if(sdmmc_debug_timeout && ++dbgCnt > 0x400000) { ctx->error |= 4; return; }
+    }
     sdmmc_write16(REG_SDIRMASK0, 0);
     sdmmc_write16(REG_SDIRMASK1, 0);
     sdmmc_write16(REG_SDSTATUS0, 0);
@@ -111,8 +118,10 @@ static void __attribute__((noinline)) sdmmc_send_command(struct mmcdevice *ctx, 
     bool tUseBuf = tDataPtr != NULL;
 
     u16 status0 = 0;
+    dbgCnt = 0;
     while(true)
     {
+        if(sdmmc_debug_timeout && ++dbgCnt > 0x400000) { ctx->error |= 4; break; }
         vu16 status1 = sdmmc_read16(REG_SDSTATUS1);
         vu16 ctl32 = sdmmc_read16(REG_DATACTL32);
         if((ctl32 & 0x100))
@@ -399,10 +408,12 @@ static int SD_Init()
     u32 temp = (handleSD.error & 0x1) << 0x1E;
 
     u32 temp2 = 0;
+    u32 dbgTries = 0;
     do
     {
         do
         {
+            if(sdmmc_debug_timeout && ++dbgTries > 0x2000) return -9;
             sdmmc_send_command(&handleSD, 0x10437, handleSD.initarg << 0x10);
             sdmmc_send_command(&handleSD, 0x10769, 0x00FF8000 | temp);
             temp2 = 1;
