@@ -13,6 +13,22 @@ emunandPatch:
     mov r6, r3
     @ End
 
+    @ Debug (dead-eMMC fork): log every NAND I/O request (ring of 32 x 16 bytes):
+    @ partition object, its device ptr and base sector (before redirect), byte offset
+    ldr r1, =emunandIoLogCount
+    ldr r2, [r1]
+    add r3, r2, #1
+    str r3, [r1]
+    and r2, r2, #31
+    ldr r1, =emunandIoLog
+    add r1, r1, r2, lsl #4
+    str r0, [r1]
+    ldr r2, [r0, #4]
+    str r2, [r1, #4]
+    ldr r2, [r0, #8]
+    str r2, [r1, #8]
+    str r5, [r1, #12]
+
     @ If we're already trying to access the SD, return
     ldr r2, [r0, #4]
     ldr r1, emunandPatchSdmmcStructPtr
@@ -44,6 +60,10 @@ emunandPatch:
         bx r0
 
 .pool
+
+.global emunandIoLogCount, emunandIoLog
+emunandIoLogCount: .word 0
+emunandIoLog: .space 0x200
 
 _emunandPatchEnd:
 

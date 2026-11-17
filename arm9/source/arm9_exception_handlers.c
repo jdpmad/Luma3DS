@@ -119,19 +119,11 @@ void __attribute__((noreturn)) arm9ExceptionHandlerMain(u32 *registerDump, u32 t
         safecpy((void *)(FINAL_BUFFER + 0x1070 - 0x24), (const void *)(0x080D7880 + 0x48), 0x24);
     }
     safecpy((void *)(FINAL_BUFFER + 0x1070), (const void *)0x080F7148, 0x190);
-    // +0xD00: 0x40 bytes of the P9 FS object 0x080D90F0, +0xD40: 0x100 bytes of the CTRNAND archive (*(0x080D90F4))
-    safecpy((void *)(FINAL_BUFFER + 0xD00), (const void *)0x080D90F0, 0x40);
+    // +0xD00: NAND I/O log from emunandPatch: count, then (at +0xD10) 32 entries {part obj, dev ptr, base sector, byte offset}
     {
-        u32 arc = *(vu32 *)0x080D90F4;
-        if(arc >= 0x08094000 && arc < 0x080FE000) safecpy((void *)(FINAL_BUFFER + 0xD40), (const void *)arc, 0x80);
-    }
-    // +0xDC0: 0x100 bytes of the NAND FS archive's inner object (0x080D7E50), +0xEC0: 0x40 bytes of 0x080D7848
-    safecpy((void *)(FINAL_BUFFER + 0xDC0), (const void *)0x080D7E50, 0x100);
-    safecpy((void *)(FINAL_BUFFER + 0xEC0), (const void *)0x080D7848, 0x40);
-    // +0xF00: 0x100 bytes of the object pointed by 0x080D7E50+4 (if any)
-    {
-        u32 q = *(vu32 *)(0x080D7E50 + 4);
-        if(q >= 0x08094000 && q < 0x080FE000) safecpy((void *)(FINAL_BUFFER + 0xF00), (const void *)q, 0x100);
+        extern u32 emunandIoLogCount, emunandIoLog[];
+        *(vu32 *)(FINAL_BUFFER + 0xD00) = emunandIoLogCount;
+        safecpy((void *)(FINAL_BUFFER + 0xD10), (const void *)emunandIoLog, 0x200);
     }
     for(u32 i = 0x0C; i < 0x1C; i++) *(vu8 *)(FINAL_BUFFER + 0x1070 + i) = 0xEE; // don't leak the CID into the dump
 
