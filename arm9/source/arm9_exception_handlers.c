@@ -115,6 +115,8 @@ void __attribute__((noreturn)) arm9ExceptionHandlerMain(u32 *registerDump, u32 t
         extern u32 nandInitHookCidInfo;
         *(vu32 *)(FINAL_BUFFER + 0x1040) = nandInitHookCidInfo;
         safecpy((void *)(FINAL_BUFFER + 0x1044), (const void *)0x080DD820, 8);
+        // +0x104C: 0x24 bytes of the P9 NAND-crypto context (main object 0x080D7880 + 0x48, derived from the CID)
+        safecpy((void *)(FINAL_BUFFER + 0x1070 - 0x24), (const void *)(0x080D7880 + 0x48), 0x24);
     }
     safecpy((void *)(FINAL_BUFFER + 0x1060), (const void *)0x080F7148, 0x1A0);
     for(u32 i = 0x0C; i < 0x1C; i++) *(vu8 *)(FINAL_BUFFER + 0x1060 + i) = 0xEE; // don't leak the CID into the dump
