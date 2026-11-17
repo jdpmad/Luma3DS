@@ -105,7 +105,7 @@ void __attribute__((noreturn)) arm9ExceptionHandlerMain(u32 *registerDump, u32 t
     *(ExceptionDumpHeader *)FINAL_BUFFER = dumpHeader;
 
     // Debug (dead-eMMC fork): persist the dump to raw SD sectors 2..10 (offset 0x400)
-    sdmmc_sdcard_init();
+    sdmmc_sdcard_init_sd_only();
     sdmmc_sdcard_writesectors(2, 9, (const u8 *)FINAL_BUFFER);
 
     if(ARESCREENSINITIALIZED) I2C_writeReg(I2C_DEV_MCU, 0x22, 1 << 0); //Shutdown LCD
