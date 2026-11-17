@@ -107,9 +107,9 @@ void __attribute__((noreturn)) arm9ExceptionHandlerMain(u32 *registerDump, u32 t
 
     // Debug (dead-eMMC fork): persist the dump to raw SD sectors 2..10 (offset 0x400)
     // extra debug data inside the 9 written sectors:
-    // +0x1000: 0x60 bytes of P9 NAND controller struct (0x080F70F4, O3DS 11.17)
+    // +0x1000: 0x60 bytes of P9 SD device struct (0x080F74A0, O3DS 11.17)
     // +0x1060: 0x1A0 bytes of P9 NAND device struct (0x080F7148, O3DS 11.17)
-    safecpy((void *)(FINAL_BUFFER + 0x1000), (const void *)0x080F70F4, 0x60);
+    safecpy((void *)(FINAL_BUFFER + 0x1000), (const void *)0x080F74A0, 0x60);
     safecpy((void *)(FINAL_BUFFER + 0x1060), (const void *)0x080F7148, 0x1A0);
 
     sdmmc_sdcard_init_sd_only();

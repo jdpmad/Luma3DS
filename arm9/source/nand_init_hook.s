@@ -30,8 +30,14 @@ nandInitHook:
     mov r1, #0
     str r1, [r0, #0x3C]             @ clear error flags
     mov r1, #1
+    strb r1, [r0, #8]               @ card present/initialized
     strb r1, [r0, #9]               @ card ready flags
     strb r1, [r0, #0xA]
+    mov r1, #0
+    str r1, [r0, #0x48]             @ capacity info read by Process9: flags,
+    str r1, [r0, #0x50]             @ sector count high word,
+    mov r1, #0x200000
+    str r1, [r0, #0x4C]             @ sector count = 0x200000 (1 GB, matches the NCSD image size)
     ldrb r1, [r0, #0x20]            @ CSD byte 4 (C_SIZE_MULT bit 0)
     orr r1, r1, #0x80
     strb r1, [r0, #0x20]

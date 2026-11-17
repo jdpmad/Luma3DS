@@ -379,7 +379,9 @@ u32 patchNandInitFailure(u8 *pos, u32 size, u32 process9MemAddr)
     nandInitHookGetStruct = (process9MemAddr + (u32)(getter - pos)) | 1;
 
     u8 cid[16];
-    if(fileRead(cid, "nand_cid.bin", sizeof(cid)) == sizeof(cid))
+    if(fileRead(cid, "sdmc:/luma/nand_cid.bin", sizeof(cid)) == sizeof(cid) ||
+       fileRead(cid, "sdmc:/luma/nand_cid.bin.bin", sizeof(cid)) == sizeof(cid) ||
+       fileRead(cid, "sdmc:/luma/nand_cid", sizeof(cid)) == sizeof(cid))
     {
         memcpy(nandInitHookCid, cid, sizeof(cid));
         nandInitHookCidValid = 1;
