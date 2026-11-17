@@ -27,6 +27,7 @@
 #include "arm9_exception_handlers.h"
 #include "i2c.h"
 #include "screen.h"
+#include "fatfs/sdmmc/sdmmc.h"
 
 #define FINAL_BUFFER    0x25000000
 
@@ -145,6 +146,10 @@ void __attribute__((noreturn)) arm9ExceptionHandlerMain(u32 *registerDump, u32 t
 
     //Copy header (actually optimized by the compiler)
     *(ExceptionDumpHeader *)FINAL_BUFFER = dumpHeader;
+
+    // Debug: persist the dump to raw SD sectors 2..10 (offset 0x400), like the community builds do
+    sdmmc_sdcard_init();
+    sdmmc_sdcard_writesectors(2, 9, (const u8 *)FINAL_BUFFER);
 
     // Debug: show registers on screen and halt instead of rebooting
     dbgDraw((u8 *)0x18300000, registerDump, type);
