@@ -107,7 +107,7 @@ void __attribute__((noreturn)) arm9ExceptionHandlerMain(u32 *registerDump, u32 t
     // Debug (dead-eMMC fork): persist the dump to raw SD sectors 2..10 (offset 0x400)
     // extra debug data inside the 9 written sectors (SD 0x400..0x13FF):
     // +0x10A0: 0x100 bytes of the P9 device-init failure log (see dbg_init_hook.s)
-    safecpy((void *)(FINAL_BUFFER + 0x10A0), (const void *)0x25001F00, 0x100);
+    safecpy((void *)(FINAL_BUFFER + 0x10A0), (const void *)0x080FF000, 0x100);
 
     sdmmc_sdcard_init_sd_only();
     sdmmc_sdcard_writesectors(2, 9, (const u8 *)FINAL_BUFFER);

@@ -366,7 +366,8 @@ u32 patchNandInitFailure(u8 *pos, u32 size)
     if(off == NULL) return 0;
 
     // clear the failure log (read back by the exception handler)
-    for(u32 i = 0; i < 0x100; i += 4) *(vu32 *)(0x25001F00 + i) = 0;
+    for(u32 i = 0; i < 0x100; i += 4) *(vu32 *)(0x080FF000 + i) = 0;
+    *(vu32 *)0x080FF000 = 0x31474244; // 'DBG1'
 
     // Redirect the whole wrapper to dbgInitWrapperHook (ARM code in ITCM, see dbg_init_hook.s):
     //   ldr r1, [pc, #x] ; bx r1 ; (nop) ; .word hook
