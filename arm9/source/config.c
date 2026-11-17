@@ -795,7 +795,10 @@ bool readConfig(void)
     retMcu = readConfigMcu();
     applyLedMasterBrightnessOverride();
     ret = readLumaIniConfig();
-    if(!retMcu || !ret ||
+    // Dead-eMMC fork: don't require the MCU-stored part (it can be lost/unwritable on this console);
+    // a valid config.ini is enough. readConfigMcu() already reset the MCU part to defaults if it was invalid.
+    (void)retMcu;
+    if(!ret ||
        configData.formatVersionMajor != CONFIG_VERSIONMAJOR ||
        configData.formatVersionMinor != CONFIG_VERSIONMINOR)
     {
