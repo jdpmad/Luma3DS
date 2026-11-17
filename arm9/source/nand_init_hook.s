@@ -56,8 +56,9 @@ _nandOut:
 
 .pool
 
-.global nandInitHookOrigFunc, nandInitHookGetStruct, nandInitHookCidValid, nandInitHookCid
+.global nandInitHookOrigFunc, nandInitHookGetStruct, nandInitHookCidValid, nandInitHookCid, nandInitHookCidInfo
 nandInitHookOrigFunc:  .word 0
 nandInitHookGetStruct: .word 0
 nandInitHookCidValid:  .word 0
 nandInitHookCid:       .word 0, 0, 0, 0
+nandInitHookCidInfo:   .word 0

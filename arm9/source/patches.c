@@ -35,6 +35,7 @@
 
 #include "patches.h"
 #include "fs.h"
+#include "fatfs/sdmmc/sdmmc.h"
 #include "exceptions.h"
 #include "memory.h"
 #include "config.h"
@@ -352,7 +353,7 @@ u32 patchSignatureChecks(u8 *pos, u32 size)
 // Turn the "blt <return error>" after init() into a nop, so init failure is ignored and the device is marked ready.
 // Not fatal if the pattern isn't found (other firmware versions).
 extern u8 nandInitHook[];
-extern u32 nandInitHookOrigFunc, nandInitHookGetStruct, nandInitHookCidValid, nandInitHookCid[4];
+extern u32 nandInitHookOrigFunc, nandInitHookGetStruct, nandInitHookCidValid, nandInitHookCid[4], nandInitHookCidInfo;
 
 static u32 thumbBlTarget(u32 va, const u16 *ins)
 {
@@ -378,14 +379,35 @@ u32 patchNandInitFailure(u8 *pos, u32 size, u32 process9MemAddr)
     nandInitHookOrigFunc = thumbBlTarget(siteVA + 2, (const u16 *)(site + 2)) | 1;
     nandInitHookGetStruct = (process9MemAddr + (u32)(getter - pos)) | 1;
 
-    u8 cid[16];
-    if(fileRead(cid, "sdmc:/luma/nand_cid.bin", sizeof(cid)) == sizeof(cid) ||
-       fileRead(cid, "sdmc:/luma/nand_cid.bin.bin", sizeof(cid)) == sizeof(cid) ||
-       fileRead(cid, "sdmc:/luma/nand_cid", sizeof(cid)) == sizeof(cid))
+    // CID: Luma decrypts CTRNAND (to load this very FIRM) with the CID it reads via CMD10, so prefer that one.
+    // Fall back to luma/nand_cid.bin (from essential.exefs) if CMD10 returns all zeros.
+    // nandInitHookCidInfo (debug): bit0 file present, bit1 file == CMD10 CID, bit2 CMD10 CID non-zero, bit3 used file
+    __attribute__((aligned(4))) u8 cid[16], fileCid[16];
+    u32 info = 0;
+    sdmmc_get_cid(true, (u32 *)cid);
+    bool cmd10Valid = false;
+    for(u32 i = 0; i < 16; i++) if(cid[i] != 0) cmd10Valid = true;
+    if(cmd10Valid) info |= 4;
+
+    if(fileRead(fileCid, "sdmc:/luma/nand_cid.bin", sizeof(fileCid)) == sizeof(fileCid) ||
+       fileRead(fileCid, "sdmc:/luma/nand_cid.bin.bin", sizeof(fileCid)) == sizeof(fileCid) ||
+       fileRead(fileCid, "sdmc:/luma/nand_cid", sizeof(fileCid)) == sizeof(fileCid))
+    {
+        info |= 1;
+        if(memcmp(fileCid, cid, 16) == 0) info |= 2;
+        if(!cmd10Valid)
+        {
+            memcpy(cid, fileCid, 16);
+            info |= 8;
+        }
+    }
+
+    if(cmd10Valid || (info & 8))
     {
         memcpy(nandInitHookCid, cid, sizeof(cid));
         nandInitHookCidValid = 1;
     }
+    nandInitHookCidInfo = info;
 
     // replace the 8-byte function with: ldr r1, [pc, #x] ; bx r1 ; (nop) ; .word nandInitHook
     u16 *t = (u16 *)site;

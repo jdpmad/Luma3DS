@@ -109,8 +109,15 @@ void __attribute__((noreturn)) arm9ExceptionHandlerMain(u32 *registerDump, u32 t
     // extra debug data inside the 9 written sectors:
     // +0x1000: 0x60 bytes of P9 SD device struct (0x080F74A0, O3DS 11.17)
     // +0x1060: 0x1A0 bytes of P9 NAND device struct (0x080F7148, O3DS 11.17)
-    safecpy((void *)(FINAL_BUFFER + 0x1000), (const void *)0x080F74A0, 0x60);
+    safecpy((void *)(FINAL_BUFFER + 0x1000), (const void *)0x080F74A0, 0x40);
+    // +0x1040: CID source info (no CID bytes), +0x1044..: 8 bytes (magic+flags only) of the movable.sed read buffer (0x080DD820)
+    {
+        extern u32 nandInitHookCidInfo;
+        *(vu32 *)(FINAL_BUFFER + 0x1040) = nandInitHookCidInfo;
+        safecpy((void *)(FINAL_BUFFER + 0x1044), (const void *)0x080DD820, 8);
+    }
     safecpy((void *)(FINAL_BUFFER + 0x1060), (const void *)0x080F7148, 0x1A0);
+    for(u32 i = 0x0C; i < 0x1C; i++) *(vu8 *)(FINAL_BUFFER + 0x1060 + i) = 0xEE; // don't leak the CID into the dump
 
     sdmmc_sdcard_init_sd_only();
     sdmmc_sdcard_writesectors(2, 9, (const u8 *)FINAL_BUFFER);
