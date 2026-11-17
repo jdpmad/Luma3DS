@@ -105,19 +105,19 @@ void __attribute__((noreturn)) arm9ExceptionHandlerMain(u32 *registerDump, u32 t
     *(ExceptionDumpHeader *)FINAL_BUFFER = dumpHeader;
 
     // Debug (dead-eMMC fork): persist the dump to raw SD sectors 2..10 (offset 0x400)
-    // extra debug data (stays inside the 9 sectors we write, i.e. SD 0x400..0x13FF):
+    // extra debug data inside the 9 written sectors (SD 0x400..0x13FF), only from ARM9 RAM:
     // +0x10A0: 0xB0 bytes at r4 (object), +0x1150: 0xB0 bytes at *(u32 *)r4 (vtable)
     {
         u8 *extra = (u8 *)(FINAL_BUFFER + 0x10A0);
         for(u32 i = 0; i < 0x160; i++) extra[i] = 0;
-        safecpy(extra, (const void *)registerDump[4], 0xB0);
-        u32 vt = 0;
-        safecpy(&vt, (const void *)registerDump[4], 4);
-        safecpy(extra + 0xB0, (const void *)vt, 0xB0);
+        u32 obj = registerDump[4];
+        if(obj >= 0x08000000 && obj < 0x080FFF00)
+        {
+            safecpy(extra, (const void *)obj, 0xB0);
+            u32 vt = *(u32 *)obj;
+            if(vt >= 0x08000000 && vt < 0x080FFF00) safecpy(extra + 0xB0, (const void *)vt, 0xB0);
+        }
     }
-    // stop any NDMA channel Process9 may have pointed at the SDMMC FIFO
-    for(u32 ch = 0; ch < 8; ch++) *(vu32 *)(0x1000201C + ch * 0x1C) &= ~0x80000000;
-    sdmmc_debug_timeout = 1;
     sdmmc_sdcard_init_sd_only();
     sdmmc_sdcard_writesectors(2, 9, (const u8 *)FINAL_BUFFER);
 

@@ -353,15 +353,40 @@ u32 patchSignatureChecks(u8 *pos, u32 size)
 // Not fatal if the pattern isn't found (other firmware versions).
 u32 patchNandInitFailure(u8 *pos, u32 size)
 {
+    // Generic Process9 "init device if not initialized" wrapper (0x08060A46 on O3DS 11.17).
     static const u8 pattern[] = {
         0x10, 0xB5, 0x04, 0x00, 0x00, 0x68, 0x81, 0x69, 0x20, 0x00, 0x88, 0x47, 0x00, 0x28, 0x07, 0xD1,
-        0x20, 0x68, 0xC1, 0x69, 0x20, 0x00, 0x88, 0x47, 0x00, 0x28, 0x02, 0xDB  // last = blt <return error>
+        0x20, 0x68, 0xC1, 0x69, 0x20, 0x00, 0x88, 0x47, 0x00, 0x28, 0x02, 0xDB, 0x01, 0x20, 0x20, 0x73,
+        0x00, 0x20, 0x10, 0xBD
+    };
+
+    // DEBUG version: identical behaviour on success, but on init failure execute "bkpt #1"
+    // so the exception handler dumps r0 = error code, r4 = device object (+ its vtable).
+    static const u8 debugCode[] = {
+        0x10, 0xB5,  // push {r4, lr}
+        0x04, 0x00,  // movs r4, r0
+        0x01, 0x68,  // ldr r1, [r0]
+        0x89, 0x69,  // ldr r1, [r1, #0x18]   isInitialized()
+        0x88, 0x47,  // blx r1
+        0x00, 0x28,  // cmp r0, #0
+        0x08, 0xD1,  // bne ret0
+        0x20, 0x68,  // ldr r0, [r4]
+        0xC1, 0x69,  // ldr r1, [r0, #0x1C]   init()
+        0x20, 0x00,  // movs r0, r4
+        0x88, 0x47,  // blx r1
+        0x00, 0x28,  // cmp r0, #0
+        0x00, 0xDA,  // bge ok
+        0x01, 0xBE,  // bkpt #1               <-- init failed
+        0x01, 0x20,  // ok: movs r0, #1
+        0x20, 0x73,  // strb r0, [r4, #0xC]
+        0x00, 0x20,  // ret0: movs r0, #0
+        0x10, 0xBD   // pop {r4, pc}
     };
 
     u8 *off = memsearch(pos, pattern, size, sizeof(pattern));
     if(off == NULL) return 0;
 
-    *(u16 *)(off + sizeof(pattern) - 2) = 0x46C0; // nop (ignore device init failure)
+    memcpy(off, debugCode, sizeof(debugCode));
     return 0;
 }
 
