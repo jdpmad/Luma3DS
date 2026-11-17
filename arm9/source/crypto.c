@@ -333,12 +333,17 @@ __attribute__((aligned(4))) static const u8 key1s[2][AES_BLOCK_SIZE] = {
     {0xFF, 0x77, 0xA0, 0x9A, 0x99, 0x81, 0xE9, 0x48, 0xEC, 0x51, 0xC9, 0x32, 0x5D, 0x14, 0xEC, 0x25}
 };
 
+// Dead-eMMC fork: CID read at boot (the one Luma uses to decrypt CTRNAND)
+u8 lumaBootCid[16];
+bool lumaBootCidSet = false;
+
 int ctrNandInit(void)
 {
     __attribute__((aligned(4))) u8 cid[AES_BLOCK_SIZE],
                                    shaSum[SHA_256_HASH_SIZE];
 
     sdmmc_get_cid(1, (u32 *)cid);
+    if(!lumaBootCidSet) { memcpy(lumaBootCid, cid, 16); lumaBootCidSet = true; }
     sha(shaSum, cid, sizeof(cid), SHA_256_MODE);
     memcpy(nandCtr, shaSum, sizeof(nandCtr));
 

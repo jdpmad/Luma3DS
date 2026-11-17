@@ -382,27 +382,39 @@ u32 patchNandInitFailure(u8 *pos, u32 size, u32 process9MemAddr)
     // CID: Luma decrypts CTRNAND (to load this very FIRM) with the CID it reads via CMD10, so prefer that one.
     // Fall back to luma/nand_cid.bin (from essential.exefs) if CMD10 returns all zeros.
     // nandInitHookCidInfo (debug): bit0 file present, bit1 file == CMD10 CID, bit2 CMD10 CID non-zero, bit3 used file
+    // nandInitHookCidInfo (debug): bit0 file present, bit1 file == CMD10 CID (now), bit2 CMD10 CID (now) non-zero,
+    // bit3 used file, bit4 boot-time CID non-zero, bit5 file == boot-time CID, bit6 used boot-time CID
+    extern u8 lumaBootCid[16];
+    extern bool lumaBootCidSet;
     __attribute__((aligned(4))) u8 cid[16], fileCid[16];
     u32 info = 0;
+    bool haveCid = false;
+
     sdmmc_get_cid(true, (u32 *)cid);
     bool cmd10Valid = false;
     for(u32 i = 0; i < 16; i++) if(cid[i] != 0) cmd10Valid = true;
     if(cmd10Valid) info |= 4;
 
-    if(fileRead(fileCid, "sdmc:/luma/nand_cid.bin", sizeof(fileCid)) == sizeof(fileCid) ||
-       fileRead(fileCid, "sdmc:/luma/nand_cid.bin.bin", sizeof(fileCid)) == sizeof(fileCid) ||
-       fileRead(fileCid, "sdmc:/luma/nand_cid", sizeof(fileCid)) == sizeof(fileCid))
+    bool bootValid = false;
+    if(lumaBootCidSet) for(u32 i = 0; i < 16; i++) if(lumaBootCid[i] != 0) bootValid = true;
+    if(bootValid) info |= 0x10;
+
+    bool fileOk = fileRead(fileCid, "sdmc:/luma/nand_cid.bin", sizeof(fileCid)) == sizeof(fileCid) ||
+                  fileRead(fileCid, "sdmc:/luma/nand_cid.bin.bin", sizeof(fileCid)) == sizeof(fileCid) ||
+                  fileRead(fileCid, "sdmc:/luma/nand_cid", sizeof(fileCid)) == sizeof(fileCid);
+    if(fileOk)
     {
         info |= 1;
         if(memcmp(fileCid, cid, 16) == 0) info |= 2;
-        if(!cmd10Valid)
-        {
-            memcpy(cid, fileCid, 16);
-            info |= 8;
-        }
+        if(bootValid && memcmp(fileCid, lumaBootCid, 16) == 0) info |= 0x20;
     }
 
-    if(cmd10Valid || (info & 8))
+    // Priority: the CID Luma itself used successfully to decrypt CTRNAND at boot, then the file, then CMD10 now
+    if(bootValid) { memcpy(cid, lumaBootCid, 16); info |= 0x40; haveCid = true; }
+    else if(fileOk) { memcpy(cid, fileCid, 16); info |= 8; haveCid = true; }
+    else if(cmd10Valid) haveCid = true;
+
+    if(haveCid)
     {
         memcpy(nandInitHookCid, cid, sizeof(cid));
         nandInitHookCidValid = 1;
