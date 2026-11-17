@@ -372,6 +372,34 @@ int ctrNandInit(void)
     return result;
 }
 
+
+// Dead-eMMC fork (debug): check whether a candidate CID decrypts this (emu)NAND's CTR MBR (0x55AA signature).
+// Returns 1 if it does, 0 if not, negative on read error. Does not change the global CTRNAND state.
+int ctrNandTestCid(const u8 *cid)
+{
+    __attribute__((aligned(4))) u8 shaSum[SHA_256_HASH_SIZE], ctr[AES_BLOCK_SIZE], temp[0x200];
+
+    int result = ctrNandLocation == FIRMWARE_SYSNAND ? sdmmc_nand_readsectors(0, 1, temp) : sdmmc_sdcard_readsectors(emuOffset + emuHeader, 1, temp);
+    if(result) return -1;
+    if(memcmp(temp + 0x100, "NCSD", 4) != 0) return -2;
+
+    u32 partitionNum = 1;
+    for(u8 *partitionId = temp + 0x111; *partitionId != 1 && partitionNum < 8; partitionId++, partitionNum++);
+    u32 ctrMbrOffset = *((u32 *)(temp + 0x120) + (2 * partitionNum));
+
+    sha(shaSum, cid, 16, SHA_256_MODE);
+    memcpy(ctr, shaSum, sizeof(ctr));
+    aes_advctr(ctr, (ctrMbrOffset * 0x200) / AES_BLOCK_SIZE, AES_INPUT_BE | AES_INPUT_NORMAL);
+
+    result = ctrNandLocation == FIRMWARE_SYSNAND ? sdmmc_nand_readsectors(ctrMbrOffset, 1, temp) : sdmmc_sdcard_readsectors(ctrMbrOffset + emuOffset, 1, temp);
+    if(result) return -3;
+
+    aes_use_keyslot(ISN3DS ? 0x05 : 0x04);
+    aes(temp, temp, 0x200 / AES_BLOCK_SIZE, ctr, AES_CTR_MODE, AES_INPUT_BE | AES_INPUT_NORMAL);
+
+    return temp[0x1FE] == 0x55 && temp[0x1FF] == 0xAA ? 1 : 0;
+}
+
 int ctrNandRead(u32 sector, u32 sectorCount, u8 *outbuf)
 {
     __attribute__((aligned(4))) u8 tmpCtr[sizeof(nandCtr)];

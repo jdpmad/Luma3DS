@@ -51,10 +51,10 @@ nandInitHook:
     stmia r0, {r1-r3, r12}
 
 _nandOut:
-    @ debug: test whether Process9 can write to Luma's ITCM area (bit 8 of nandInitHookCidInfo)
+    @ debug: test whether Process9 can write to Luma's ITCM area (bit 28 of nandInitHookCidInfo)
     ldr r1, =nandInitHookCidInfo
     ldr r2, [r1]
-    orr r2, r2, #0x100
+    orr r2, r2, #0x10000000
     str r2, [r1]
     mov r0, #0
     pop {r4, pc}

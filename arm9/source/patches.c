@@ -409,10 +409,36 @@ u32 patchNandInitFailure(u8 *pos, u32 size, u32 process9MemAddr)
         if(bootValid && memcmp(fileCid, lumaBootCid, 16) == 0) info |= 0x20;
     }
 
-    // Priority: the CID Luma itself used successfully to decrypt CTRNAND at boot, then the file, then CMD10 now
-    if(bootValid) { memcpy(cid, lumaBootCid, 16); info |= 0x40; haveCid = true; }
-    else if(fileOk) { memcpy(cid, fileCid, 16); info |= 8; haveCid = true; }
-    else if(cmd10Valid) haveCid = true;
+    // Pick the CID that actually decrypts this (emu)NAND's CTR MBR. Candidates: boot-time CID, file, CMD10 now, all zeros
+    // (an emuNAND made while the eMMC was already dead may have been encrypted with a zero CID).
+    // nibbles: bits 8-11 file, 12-15 boot, 16-19 CMD10, 20-23 zero CID (1 = decrypts OK, 2 = no, 3 = read error, 0 = not tested)
+    // bits 24-27: chosen candidate (1 file, 2 boot, 3 CMD10, 4 zero, 0 = none passed -> old priority)
+    {
+        extern int ctrNandTestCid(const u8 *cid);
+        static const u8 zeroCid[16] = {0};
+        const u8 *cands[4] = { fileOk ? fileCid : NULL, bootValid ? lumaBootCid : NULL, cmd10Valid ? cid : NULL, zeroCid };
+        const u8 *chosen = NULL;
+        for(u32 k = 0; k < 4; k++)
+        {
+            if(cands[k] == NULL) continue;
+            int r = ctrNandTestCid(cands[k]);
+            info |= (u32)(r == 1 ? 1 : r == 0 ? 2 : 3) << (8 + 4 * k);
+            if(r == 1 && chosen == NULL) { chosen = cands[k]; info |= (k + 1) << 24; }
+        }
+        if(chosen != NULL)
+        {
+            if(chosen != cid) memcpy(cid, chosen, 16);
+            haveCid = true;
+        }
+    }
+
+    // Fallback priority if no candidate decrypted: boot-time CID, then the file, then CMD10 now
+    if(!haveCid)
+    {
+        if(bootValid) { memcpy(cid, lumaBootCid, 16); info |= 0x40; haveCid = true; }
+        else if(fileOk) { memcpy(cid, fileCid, 16); info |= 8; haveCid = true; }
+        else if(cmd10Valid) haveCid = true;
+    }
 
     if(haveCid)
     {
