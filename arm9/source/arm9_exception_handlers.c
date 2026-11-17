@@ -79,7 +79,7 @@ void __attribute__((noreturn)) arm9ExceptionHandlerMain(u32 *registerDump, u32 t
 
     //Dump stack in place
     // Debug (dead-eMMC fork): dump the stack starting 0x200 bytes BELOW sp (freed frames hold the error codes)
-    dumpHeader.stackDumpSize = safecpy(final, (const void *)(registerDump[13] - 0x100), 0x800);
+    dumpHeader.stackDumpSize = safecpy(final, (const void *)(registerDump[13] - 0x200), 0xC00);
     final += dumpHeader.stackDumpSize;
 
     // See if we need to copy Arm9 memory (check for bkpt 0xFFFD / bkpt 0xFD)
@@ -105,35 +105,27 @@ void __attribute__((noreturn)) arm9ExceptionHandlerMain(u32 *registerDump, u32 t
     //Copy header (actually optimized by the compiler)
     *(ExceptionDumpHeader *)FINAL_BUFFER = dumpHeader;
 
-    // Debug (dead-eMMC fork): persist the dump to raw SD sectors 2..10 (offset 0x400). Extra data layout:
-    // +0x900: 0x40 bytes of the P9 FS object 0x080D90F0
-    // +0x940: 0x100 bytes of the CTRNAND archive object (*(0x080D90F4))
-    // +0xA40: for each of the first 16 words of the archive that point into ARM9 RAM, 0x40 bytes at that pointer
-    // +0x1000: CID source info, +0x1004: movable.sed magic/flags (8), +0x100C: CID-derived NAND CTR context (0x24)
-    // +0x1040: 0x1C0 bytes of the P9 eMMC device struct (CID bytes masked)
+    // Debug (dead-eMMC fork): persist the dump to raw SD sectors 2..10 (offset 0x400)
+    // extra debug data inside the 9 written sectors:
+    // +0x1000: 0x60 bytes of P9 SD device struct (0x080F74A0, O3DS 11.17)
+    // +0x1060: 0x1A0 bytes of P9 NAND device struct (0x080F7148, O3DS 11.17)
+    safecpy((void *)(FINAL_BUFFER + 0x1000), (const void *)0x080F74A0, 0x40);
+    // +0x1040: CID source info (no CID bytes), +0x1044..: 8 bytes (magic+flags only) of the movable.sed read buffer (0x080DD820)
     {
-        u8 *x = (u8 *)FINAL_BUFFER;
-        for(u32 i = 0x900; i < 0x1200; i++) x[i] = 0;
-        safecpy(x + 0x900, (const void *)0x080D90F0, 0x40);
-        u32 arc = 0;
-        safecpy(&arc, (const void *)0x080D90F4, 4);
-        if(arc >= 0x08000000 && arc < 0x08100000)
-        {
-            safecpy(x + 0x940, (const void *)arc, 0x100);
-            for(u32 i = 0; i < 16; i++)
-            {
-                u32 p = 0;
-                safecpy(&p, (const void *)(arc + 4 * i), 4);
-                if(p >= 0x08094000 && p < 0x080FF000) safecpy(x + 0xA40 + 0x40 * i, (const void *)p, 0x40);
-            }
-        }
         extern u32 nandInitHookCidInfo;
-        *(vu32 *)(x + 0x1000) = nandInitHookCidInfo;
-        safecpy(x + 0x1004, (const void *)0x080DD820, 8);
-        safecpy(x + 0x100C, (const void *)(0x080D7880 + 0x48), 0x24);
-        safecpy(x + 0x1040, (const void *)0x080F7148, 0x1C0);
-        for(u32 i = 0x0C; i < 0x1C; i++) x[0x1040 + i] = 0xEE; // don't leak the CID into the dump
+        *(vu32 *)(FINAL_BUFFER + 0x1040) = nandInitHookCidInfo;
+        safecpy((void *)(FINAL_BUFFER + 0x1044), (const void *)0x080DD820, 8);
+        // +0x104C: 0x24 bytes of the P9 NAND-crypto context (main object 0x080D7880 + 0x48, derived from the CID)
+        safecpy((void *)(FINAL_BUFFER + 0x1070 - 0x24), (const void *)(0x080D7880 + 0x48), 0x24);
     }
+    safecpy((void *)(FINAL_BUFFER + 0x1070), (const void *)0x080F7148, 0x190);
+    // +0xD00: 0x40 bytes of the P9 FS object 0x080D90F0, +0xD40: 0x100 bytes of the CTRNAND archive (*(0x080D90F4))
+    safecpy((void *)(FINAL_BUFFER + 0xD00), (const void *)0x080D90F0, 0x40);
+    {
+        u32 arc = *(vu32 *)0x080D90F4;
+        if(arc >= 0x08094000 && arc < 0x080FE000) safecpy((void *)(FINAL_BUFFER + 0xD40), (const void *)arc, 0x100);
+    }
+    for(u32 i = 0x0C; i < 0x1C; i++) *(vu8 *)(FINAL_BUFFER + 0x1070 + i) = 0xEE; // don't leak the CID into the dump
 
     sdmmc_sdcard_init_sd_only();
     sdmmc_sdcard_writesectors(2, 9, (const u8 *)FINAL_BUFFER);
