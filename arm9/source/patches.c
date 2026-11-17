@@ -360,7 +360,7 @@ u32 patchNandInitFailure(u8 *pos, u32 size)
         0x00, 0x20, 0x10, 0xBD
     };
 
-    // DEBUG version: identical behaviour on success, but on init failure execute "bkpt #1"
+    // DEBUG version: identical behaviour on success, but on init failure execute "str r0, [r0]"
     // so the exception handler dumps r0 = error code, r4 = device object (+ its vtable).
     static const u8 debugCode[] = {
         0x10, 0xB5,  // push {r4, lr}
@@ -376,7 +376,7 @@ u32 patchNandInitFailure(u8 *pos, u32 size)
         0x88, 0x47,  // blx r1
         0x00, 0x28,  // cmp r0, #0
         0x00, 0xDA,  // bge ok
-        0x01, 0xBE,  // bkpt #1               <-- init failed
+        0x00, 0x60,  // str r0, [r0]          <-- init failed: r0 = error code, faults (data abort)
         0x01, 0x20,  // ok: movs r0, #1
         0x20, 0x73,  // strb r0, [r4, #0xC]
         0x00, 0x20,  // ret0: movs r0, #0
