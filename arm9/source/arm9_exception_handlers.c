@@ -78,7 +78,8 @@ void __attribute__((noreturn)) arm9ExceptionHandlerMain(u32 *registerDump, u32 t
     final += safecpy(final, codeDump, dumpHeader.codeDumpSize);
 
     //Dump stack in place
-    dumpHeader.stackDumpSize = safecpy(final, (const void *)registerDump[13], 0x1000 - (registerDump[13] & 0xFFF));
+    // Debug (dead-eMMC fork): dump the stack starting 0x200 bytes BELOW sp (freed frames hold the error codes)
+    dumpHeader.stackDumpSize = safecpy(final, (const void *)(registerDump[13] - 0x200), 0xF00);
     final += dumpHeader.stackDumpSize;
 
     // See if we need to copy Arm9 memory (check for bkpt 0xFFFD / bkpt 0xFD)
@@ -105,10 +106,19 @@ void __attribute__((noreturn)) arm9ExceptionHandlerMain(u32 *registerDump, u32 t
     *(ExceptionDumpHeader *)FINAL_BUFFER = dumpHeader;
 
     // Debug (dead-eMMC fork): persist the dump to raw SD sectors 2..10 (offset 0x400)
-    // extra debug data inside the 9 written sectors (SD 0x400..0x13FF):
-    // +0x10A0: 0x100 bytes of the P9 device-init failure log (see dbg_init_hook.s)
-    safecpy((void *)(FINAL_BUFFER + 0x10A0), (const void *)0x25001F00, 0x100);
-
+    // extra debug data inside the 9 written sectors (SD 0x400..0x13FF), only from ARM9 RAM:
+    // +0x10A0: 0xB0 bytes at r4 (object), +0x1150: 0xB0 bytes at *(u32 *)r4 (vtable)
+    {
+        u8 *extra = (u8 *)(FINAL_BUFFER + 0x10A0);
+        for(u32 i = 0; i < 0x160; i++) extra[i] = 0;
+        u32 obj = registerDump[4];
+        if(obj >= 0x08000000 && obj < 0x080FFF00)
+        {
+            safecpy(extra, (const void *)obj, 0xB0);
+            u32 vt = *(u32 *)obj;
+            if(vt >= 0x08000000 && vt < 0x080FFF00) safecpy(extra + 0xB0, (const void *)vt, 0xB0);
+        }
+    }
     sdmmc_sdcard_init_sd_only();
     sdmmc_sdcard_writesectors(2, 9, (const u8 *)FINAL_BUFFER);
 

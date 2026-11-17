@@ -355,6 +355,9 @@ extern u8 dbgInitWrapperHook[];
 
 u32 patchNandInitFailure(u8 *pos, u32 size)
 {
+    (void)dbgInitWrapperHook; (void)pos; (void)size;
+    return 0; // DEBUG v11: patch disabled, let Process9 abort at the original place
+#if 0
     // Generic Process9 "init device if not initialized" wrapper (0x08060A46 on O3DS 11.17).
     static const u8 pattern[] = {
         0x10, 0xB5, 0x04, 0x00, 0x00, 0x68, 0x81, 0x69, 0x20, 0x00, 0x88, 0x47, 0x00, 0x28, 0x07, 0xD1,
@@ -385,6 +388,7 @@ u32 patchNandInitFailure(u8 *pos, u32 size)
         *(u32 *)(off + 6) = (u32)dbgInitWrapperHook;
     }
     return 0;
+#endif
 }
 
 u32 patchOldSignatureChecks(u8 *pos, u32 size)
