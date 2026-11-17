@@ -115,6 +115,8 @@ void __attribute__((noreturn)) arm9ExceptionHandlerMain(u32 *registerDump, u32 t
         safecpy(&vt, (const void *)registerDump[4], 4);
         safecpy(extra + 0xB0, (const void *)vt, 0xB0);
     }
+    // stop any NDMA channel Process9 may have pointed at the SDMMC FIFO
+    for(u32 ch = 0; ch < 8; ch++) *(vu32 *)(0x1000201C + ch * 0x1C) &= ~0x80000000;
     sdmmc_debug_timeout = 1;
     sdmmc_sdcard_init_sd_only();
     sdmmc_sdcard_writesectors(2, 9, (const u8 *)FINAL_BUFFER);
