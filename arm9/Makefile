@@ -35,6 +35,10 @@ ifeq ($(strip $(shell git describe --tags --match v[0-9]* | grep -)),)
 	export IS_RELEASE		:=	1
 endif
 
+# Dead-eMMC fork: this is a personal build of a recent Luma3DS; report it as a release build
+# (some apps, e.g. CTGP-7, refuse to run on development builds)
+export IS_RELEASE		:=	1
+
 # Default 3DSX TitleID for hb:ldr (note: also defined in top-level Makefile)
 export HBLDR_DEFAULT_3DSX_TID ?= 000400000D921E00
 
