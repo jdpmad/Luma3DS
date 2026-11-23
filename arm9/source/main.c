@@ -206,6 +206,19 @@ void main(int argc, char **argv, u32 magicWord)
         emunandIndex = BOOTCFG_EMUINDEX;
         isFirmProtEnabled = !BOOTCFG_NTRCARDBOOT;
 
+        // Dead-eMMC fork: SysNAND can't work with a dead eMMC (all-zero CID). If the last boot options
+        // (kept in MCU memory) were lost and say SysNAND, firmlaunch into the default EmuNAND instead.
+        if(nandType == FIRMWARE_SYSNAND)
+        {
+            __attribute__((aligned(4))) u32 cid[4];
+            sdmmc_get_cid(true, cid);
+            if((cid[0] | cid[1] | cid[2] | cid[3]) == 0)
+            {
+                nandType = FIRMWARE_EMUNAND;
+                emunandIndex = MULTICONFIG(DEFAULTEMU);
+            }
+        }
+
         goto boot;
     }
 
