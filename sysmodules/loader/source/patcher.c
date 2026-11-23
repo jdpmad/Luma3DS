@@ -1027,6 +1027,28 @@ void patchCode(u8 *code, u32 size, u32 codeSize, u64 progId, u16 progVer, u32 te
 
     else if(progId == 0x0004013000008002LL) //NS
     {
+        // Dead-eMMC fork: turn NS's "hardware reset" (PTM RebootAsync -> MCU reset -> bootrom, which can't boot
+        // without ntrboot) into a firmlaunch of NATIVE_FIRM, which Luma intercepts and reloads boot.firm from SD.
+        // Found on 11.17: the reset function calls PTM RebootAsync; NS's own firmlaunch function is reused.
+        {
+            static const u32 resetPattern[] = { 0xE1A04000, 0xE2100102, 0x4A000002, 0xE59F0010, 0xE3A01000 };
+            static const u32 firmlaunchPattern[] = { 0xE1A00004, 0xE59F1008, 0xE8BD4010, 0xE3A02A01 };
+
+            u8 *r = memsearch(code, resetPattern, textSize, sizeof(resetPattern));
+            u8 *f = memsearch(code, firmlaunchPattern, textSize, sizeof(firmlaunchPattern));
+            if(r != NULL && f != NULL && r >= code + 0x18 && f >= code + 0x10)
+            {
+                u32 *resetFn = (u32 *)(r - 0x18);   // mov r0, #0 ; push {r4, lr} ; bl prepare ; ldr r0, =params ; ...
+                u32 *launchFn = (u32 *)(f - 0x10);  // push {r4, lr} ; mov r4, r0 ; mov r0, #1 ; bl prepare ; ... b pm:LaunchFirm
+                if(resetFn[0] == 0xE3A00000 && resetFn[1] == 0xE92D4010 && resetFn[3] == 0xE59F0024 &&
+                   launchFn[0] == 0xE92D4010 && launchFn[1] == 0xE1A04000 && launchFn[2] == 0xE3A00001)
+                {
+                    resetFn[0] = 0xE3A00002; // mov r0, #2 (NATIVE_FIRM title ID low)
+                    resetFn[1] = 0xEA000000 | ((((u32)launchFn - ((u32)&resetFn[1] + 8)) >> 2) & 0xFFFFFF); // b launchFn
+                }
+            }
+        }
+
         if(progVer > 4)
         {
             static const u8 pattern[] = {
