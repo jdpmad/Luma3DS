@@ -38,6 +38,8 @@ endif
 # Dead-eMMC fork: this is a personal build of a recent Luma3DS; report it as a release build
 # (some apps, e.g. CTGP-7, refuse to run on development builds)
 export IS_RELEASE		:=	1
+# Report the commit of the official v13.5 release this fork is based on (CTGP-7 only accepts known builds)
+export COMMIT			:=	a50bf165
 
 # Default 3DSX TitleID for hb:ldr (note: also defined in top-level Makefile)
 export HBLDR_DEFAULT_3DSX_TID ?= 000400000D921E00
