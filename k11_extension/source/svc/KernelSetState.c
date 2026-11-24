@@ -102,6 +102,13 @@ Result KernelSetStateHook(u32 type, u32 varg1, u32 varg2, u32 varg3)
 
     switch(type)
     {
+        case 7: // Reboot: the stock kernel does a hardware reset, which lands in the bootrom
+                // when the eMMC is dead (it can only boot from eMMC or ntrboot).
+                // Do a NATIVE_FIRM firmlaunch instead, so Luma reloads boot.firm from the SD.
+        {
+            res = KernelSetState(0, 0, isN3DS ? 0x20000002u : 2u, 0x00040138u);
+            break;
+        }
         case 0xA: // Type 10 (ConfigureNew3DSCPU)
         {
             if (varg1 & (1 << 2)) // Lock faster speed
