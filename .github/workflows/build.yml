@@ -4,6 +4,10 @@ on:
   push:
   workflow_dispatch:
 
+env:
+  # Official Luma3DS release whose Rosalina is reused byte for byte (CTGP-7 checksums it)
+  OFFICIAL_LUMA: v13.5
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -18,7 +22,7 @@ jobs:
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           apt-get update
-          apt-get install -y --no-install-recommends git zip curl ca-certificates build-essential python3 python3-pip python3-setuptools
+          apt-get install -y --no-install-recommends git zip unzip curl ca-certificates build-essential python3 python3-pip python3-setuptools
           if ! dkp-pacman -Q libctru >/dev/null 2>&1; then
             ok=0
             for i in 1 2 3 4 5 6; do
@@ -35,6 +39,15 @@ jobs:
 
       - name: Build
         run: make
+
+      - name: Use the official Rosalina (CTGP-7 compatibility)
+        run: |
+          curl -sSfL -o /tmp/official.zip "https://github.com/LumaTeam/Luma3DS/releases/download/${OFFICIAL_LUMA}/Luma3DS${OFFICIAL_LUMA}.zip"
+          unzip -o /tmp/official.zip boot.firm -d /tmp/official
+          python3 tools/use_official_rosalina.py /tmp/official/boot.firm sysmodules/sysmodules.bin
+          rm -f boot.firm
+          firmtool build boot.firm -D sysmodules/sysmodules.bin arm11/arm11.elf arm9/arm9.elf k11_extension/k11_extension.elf \
+            -A 0x18180000 -C XDMA XDMA NDMA XDMA
 
       - uses: actions/upload-artifact@v4
         with:
