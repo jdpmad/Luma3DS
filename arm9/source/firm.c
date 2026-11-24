@@ -37,6 +37,7 @@
 #include "screen.h"
 #include "fmt.h"
 #include "chainloader.h"
+#include "fatfs/sdmmc/sdmmc.h"
 
 static Firm *firm = (Firm *)0x20001000;
 u32 firmProtoVersion = 0;
@@ -647,7 +648,7 @@ u32 patchNativeFirm(u32 firmVersion, FirmwareSource nandType, bool loadFromStora
     return ret;
 }
 
-u32 patchTwlFirm(u32 firmVersion, bool loadFromStorage, bool doUnitinfoPatch)
+u32 patchTwlFirm(u32 firmVersion, FirmwareSource nandType, bool loadFromStorage, bool doUnitinfoPatch)
 {
     u8 *section1 = (u8 *)firm + firm->section[1].offset;
     u32 section1Size = firm->section[1].size;
@@ -682,6 +683,19 @@ u32 patchTwlFirm(u32 firmVersion, bool loadFromStorage, bool doUnitinfoPatch)
     if(ISN3DS || firmVersion > 0x11) ret += patchTwlFlashcartChecks(process9Offset, process9Size, firmVersion);
     else if(!ISN3DS && firmVersion == 0x11) ret += patchOldTwlFlashcartChecks(process9Offset, process9Size);
     ret += patchTwlShaHashChecks(process9Offset, process9Size);
+
+    // Dead-eMMC fork: DS Mode also uses the (dead) eMMC. Redirect its NAND accesses to the EmuNAND on the SD card
+    // and hide the dead chip, the same way as for NATIVE_FIRM.
+    if(nandType != FIRMWARE_SYSNAND)
+    {
+        __attribute__((aligned(4))) u32 cid[4];
+        sdmmc_get_cid(true, cid);
+        if((cid[0] | cid[1] | cid[2] | cid[3]) == 0)
+        {
+            ret += patchTwlEmuNand(process9Offset, process9Size, process9MemAddr);
+            ret += patchTwlNandInitFailure(process9Offset, process9Size, process9MemAddr);
+        }
+    }
 
     //Apply UNITINFO patch
     if(doUnitinfoPatch) ret += patchUnitInfoValueSet(arm9Section, kernel9Size);

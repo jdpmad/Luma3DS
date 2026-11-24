@@ -45,6 +45,7 @@ u32 patchKernel11(u8 *pos, u32 size, u32 baseK11VA, u32 *arm11SvcTable, u32 *arm
 u32 patchSignatureChecks(u8 *pos, u32 size);
 u32 patchOldSignatureChecks(u8 *pos, u32 size);
 u32 patchNandInitFailure(u8 *pos, u32 size, u32 process9MemAddr);
+u32 patchTwlNandInitFailure(u8 *pos, u32 size, u32 process9MemAddr);
 u32 patchFirmlaunches(u8 *pos, u32 size, u32 process9MemAddr);
 u32 patchFirmWrites(u8 *pos, u32 size);
 u32 patchOldFirmWrites(u8 *pos, u32 size);

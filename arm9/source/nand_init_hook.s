@@ -61,3 +61,76 @@ nandInitHookOrigFunc:  .word 0
 nandInitHookGetStruct: .word 0
 nandInitHookCidValid:  .word 0
 nandInitHookCid:       .word 0, 0, 0, 0
+
+@ ---------------------------------------------------------------------------------------------
+@ TWL_FIRM (DS Mode) variant. In TWL_FIRM's Process9 the "init device by id" function is not wrapped by
+@ a word-aligned 8-byte stub, so we hook the function itself: its first 8 bytes
+@     push {r2-r6, lr} ; movs r6, r0 ; bl <cfg getter>
+@ are replaced by "ldr r1, [pc]; bx r1; .word nandInitHookTwl". The hook performs those three
+@ instructions itself, makes the function return into nandInitHookTwlAfter (by replacing the saved lr
+@ in its stack frame) and then resumes the function right after the replaced bytes.
+@ ---------------------------------------------------------------------------------------------
+.global nandInitHookTwl
+nandInitHookTwl:
+    push {r2, r3, r4, r5, r6, lr}   @ original prologue
+    adr r1, nandInitHookTwlSaved
+    str lr, [r1]                    @ caller's return address
+    str r0, [r1, #4]                @ device id
+    adr r2, nandInitHookTwlAfter
+    str r2, [sp, #20]               @ the function's final "pop {..., pc}" now returns to our code
+    mov r6, r0                      @ original "movs r6, r0"
+    ldr r1, nandInitHookTwlCfg
+    blx r1                          @ original "bl <cfg getter>"
+    ldr r1, nandInitHookTwlResume
+    bx r1                           @ continue the original function after the replaced bytes
+
+.align 2
+nandInitHookTwlAfter:               @ reached through the function's pop {..., pc} (ARM state)
+    adr r1, nandInitHookTwlSaved
+    ldr r2, [r1, #4]                @ device id
+    ldr r3, [r1]                    @ caller's return address
+    ldr r1, =0x101
+    cmp r2, r1
+    bxne r3                         @ not the eMMC: keep the original result
+
+    push {r3, r4}
+    mov r0, r2
+    ldr r1, nandInitHookGetStruct
+    blx r1                          @ r0 = eMMC device struct
+    cmp r0, #0
+    beq _nandTwlOut
+
+    mov r1, #0
+    str r1, [r0, #0x3C]
+    mov r1, #1
+    strb r1, [r0, #8]
+    strb r1, [r0, #9]
+    strb r1, [r0, #0xA]
+    mov r1, #0
+    str r1, [r0, #0x48]
+    str r1, [r0, #0x50]
+    mov r1, #0x200000
+    str r1, [r0, #0x4C]
+    ldrb r1, [r0, #0x20]
+    orr r1, r1, #0x80
+    strb r1, [r0, #0x20]
+
+    ldr r1, nandInitHookCidValid
+    cmp r1, #0
+    beq _nandTwlOut
+    adr r1, nandInitHookCid
+    add r0, r0, #0xC
+    ldmia r1, {r1-r3, r12}
+    stmia r0, {r1-r3, r12}
+
+_nandTwlOut:
+    mov r0, #0
+    pop {r3, r4}
+    bx r3
+
+.pool
+
+.global nandInitHookTwlCfg, nandInitHookTwlResume
+nandInitHookTwlCfg:    .word 0
+nandInitHookTwlResume: .word 0
+nandInitHookTwlSaved:  .word 0, 0

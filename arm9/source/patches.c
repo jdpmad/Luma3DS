@@ -408,6 +408,59 @@ u32 patchNandInitFailure(u8 *pos, u32 size, u32 process9MemAddr)
     return 0;
 }
 
+extern u8 nandInitHookTwl[];
+extern u32 nandInitHookTwlCfg, nandInitHookTwlResume;
+
+// Same as patchNandInitFailure, for TWL_FIRM (DS Mode). Only call it when the eMMC is dead.
+u32 patchTwlNandInitFailure(u8 *pos, u32 size, u32 process9MemAddr)
+{
+    static const u8 getterPattern[] = {0xFF, 0x38, 0x01, 0x38, 0x05, 0xD0, 0x01, 0x28, 0x01, 0xD0, 0x00, 0x20, 0x70, 0x47};
+    static const u8 zeroCid[16] = {0};
+
+    u8 *getter = memsearch(pos, getterPattern, size, sizeof(getterPattern));
+    if(getter == NULL) return 1;
+    u32 getterVA = process9MemAddr + (u32)(getter - pos);
+
+    // init(id): push {r2-r6, lr} ; movs r6, r0 ; bl cfg ; movs r4, r0 ; movs r0, r6 ; bl getter ; movs r5, r0 ; cmp r4, #0
+    u8 *site = NULL;
+    for(u32 i = 0; i + 0x18 <= size; i += 2)
+    {
+        const u16 *h = (const u16 *)(pos + i);
+        if(h[0] == 0xB57C && h[1] == 0x0006 && h[4] == 0x0004 && h[5] == 0x0030 && h[8] == 0x0005 && h[9] == 0x2C00)
+        {
+            u32 va = process9MemAddr + i;
+            if((va & 3) == 0 && thumbBlTarget(va + 12, h + 6) == getterVA)
+            {
+                site = pos + i;
+                break;
+            }
+        }
+    }
+    if(site == NULL) return 1;
+
+    u32 siteVA = process9MemAddr + (u32)(site - pos);
+    nandInitHookTwlCfg = thumbBlTarget(siteVA + 4, (const u16 *)(site + 4)) | 1;
+    nandInitHookTwlResume = (siteVA + 8) | 1;
+    nandInitHookGetStruct = getterVA | 1;
+
+    __attribute__((aligned(4))) u8 fileCid[16];
+    const u8 *chosen = NULL;
+    bool fileOk = fileRead(fileCid, "sdmc:/luma/nand_cid.bin", sizeof(fileCid)) == sizeof(fileCid);
+    if(fileOk && ctrNandTestCid(fileCid) == 1) chosen = fileCid;
+    else if(ctrNandTestCid(zeroCid) == 1) chosen = zeroCid;
+    else chosen = fileOk ? fileCid : zeroCid;
+
+    memcpy(nandInitHookCid, chosen, 16);
+    nandInitHookCidValid = 1;
+
+    // replace the first 8 bytes of init(id) with: ldr r1, [pc, #0] ; bx r1 ; .word nandInitHookTwl
+    u16 *t = (u16 *)site;
+    t[0] = 0x4900; t[1] = 0x4708;
+    *(u32 *)(site + 4) = (u32)nandInitHookTwl;
+
+    return 0;
+}
+
 u32 patchOldSignatureChecks(u8 *pos, u32 size)
 {
     // Look for signature checks

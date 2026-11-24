@@ -417,6 +417,31 @@ u32 patchEmuNand(u8 *process9Offset, u32 process9Size, u32 firmVersion)
     return ret;
 }
 
+// Dead-eMMC fork: EmuNAND redirection for TWL_FIRM (DS Mode), whose Process9 uses the same read/write functions
+// as NATIVE_FIRM's. The SD card's device struct is one of the two literals of its "device struct by id" getter.
+u32 patchTwlEmuNand(u8 *process9Offset, u32 process9Size, u32 process9MemAddr)
+{
+    static const u8 getterPattern[] = {0xFF, 0x38, 0x01, 0x38, 0x05, 0xD0, 0x01, 0x28, 0x01, 0xD0, 0x00, 0x20, 0x70, 0x47};
+
+    u8 *getter = memsearch(process9Offset, getterPattern, process9Size, sizeof(getterPattern));
+    if(getter == NULL) return 1;
+
+    // +14: ldr r0, [pc, #x] ; bx lr   (id 0x101, eMMC)
+    // +18: ldr r0, [pc, #y] ; bx lr   (id 0x100, SD)
+    const u16 *ins = (const u16 *)(getter + 18);
+    if((ins[0] & 0xF800) != 0x4800 || ins[1] != 0x4770) return 1;
+
+    u32 va = process9MemAddr + (u32)(getter - process9Offset) + 18;
+    u32 litOff = (((va + 4) & ~3u) + ((u32)(ins[0] & 0xFF) << 2)) - process9MemAddr;
+    if(litOff + 4 > process9Size) return 1;
+
+    emunandPatchSdmmcStructPtr = *(u32 *)(process9Offset + litOff);
+    emunandPatchNandOffset = emuOffset;
+    emunandPatchNcsdHeaderOffset = emuHeader;
+
+    return patchNandRw(process9Offset, process9Size, (u32)emunandPatch);
+}
+
 u32 patchProtoEmuNand(u8 *process9Offset, u32 process9Size)
 {
     extern u32 firmProtoVersion;
