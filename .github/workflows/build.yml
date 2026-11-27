@@ -48,6 +48,8 @@ jobs:
           rm -f boot.firm
           firmtool build boot.firm -D sysmodules/sysmodules.bin arm11/arm11.elf arm9/arm9.elf k11_extension/k11_extension.elf \
             -A 0x18180000 -C XDMA XDMA NDMA XDMA
+          python3 tools/use_official_kernel.py /tmp/official/boot.firm boot.firm boot_final.firm
+          mv boot_final.firm boot.firm
 
       - uses: actions/upload-artifact@v4
         with:
