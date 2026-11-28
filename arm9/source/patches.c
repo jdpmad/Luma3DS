@@ -409,7 +409,7 @@ u32 patchNandInitFailure(u8 *pos, u32 size, u32 process9MemAddr)
 }
 
 extern u8 nandInitHookTwl[];
-extern u32 nandInitHookTwlCfg, nandInitHookTwlResume;
+extern u32 nandInitHookTwlCfg, nandInitHookTwlResume, nandInitHookTwlSite;
 
 // Dead-eMMC fork: TWL_FIRM's Process9 clears ITCM at 0x01FF8000 (0x4000 bytes) when it starts and copies its own
 // code there, which erased our hook code (it lives at the start of ITCM). So for DS Mode:
@@ -504,6 +504,7 @@ u32 patchTwlNandInitFailure(u8 *pos, u32 size, u32 process9MemAddr)
     u32 siteVA = process9MemAddr + (u32)(site - pos);
     nandInitHookTwlCfg = thumbBlTarget(siteVA + 4, (const u16 *)(site + 4)) | 1;
     nandInitHookTwlResume = (siteVA + 8) | 1;
+    nandInitHookTwlSite = siteVA | 1;
     nandInitHookGetStruct = getterVA | 1;
 
     __attribute__((aligned(4))) u8 fileCid[16];

@@ -81,6 +81,24 @@ nandInitHookTwl:
     ldreq r12, =0xFF6000            @ DIAG: orange = init(SD card) called
     bl ledMarkRaw
     pop {r12, lr}
+
+    @ DS Mode initializes the eMMC before the SD card, and the eMMC init already reads the NAND, which we
+    @ redirect to the SD card: that read hangs because the SD card isn't initialized yet. So, the first time,
+    @ initialize the SD card first (through this same hooked function), then the eMMC.
+    ldr r1, =0x101
+    cmp r0, r1
+    bne 1f
+    ldr r1, nandInitHookTwlSdDone
+    cmp r1, #0
+    bne 1f
+    mov r1, #1
+    str r1, nandInitHookTwlSdDone
+    push {r0, lr}
+    mov r0, #0x100
+    ldr r1, nandInitHookTwlSite
+    blx r1                          @ init(SD card)
+    pop {r0, lr}
+1:
     push {r2, r3, r4, r5, r6, lr}   @ original prologue
     adr r1, nandInitHookTwlSaved
     str lr, [r1]                    @ caller's return address
@@ -143,8 +161,10 @@ _nandTwlOut:
 
 .pool
 
-.global nandInitHookTwlCfg, nandInitHookTwlResume
+.global nandInitHookTwlCfg, nandInitHookTwlResume, nandInitHookTwlSite
 nandInitHookTwlCfg:    .word 0
+nandInitHookTwlSite:   .word 0
+nandInitHookTwlSdDone: .word 0
 nandInitHookTwlResume: .word 0
 nandInitHookTwlSaved:  .word 0, 0
 
