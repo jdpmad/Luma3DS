@@ -405,7 +405,7 @@ boot:
 
     {
         char dbg[128];
-        sprintf(dbg, "boot type=%u bootenv=%u tid=%x firm=%u nand=%u emu=%u", (u32)bootType, (u32)CFG_BOOTENV, firmlaunchTidLow, (u32)firmType, (u32)nandType, emunandIndex);
+        sprintf(dbg, "boot type=%u bootenv=%u tid=%x firm=%u nand=%u emu=%u", (unsigned int)bootType, (unsigned int)CFG_BOOTENV, (unsigned int)firmlaunchTidLow, (unsigned int)firmType, (unsigned int)nandType, (unsigned int)emunandIndex);
         dbgLog(dbg);
     }
 
@@ -439,7 +439,7 @@ boot:
 
     {
         char dbg[128];
-        sprintf(dbg, "patched firm=%u ver=%x res=%u shift=%x", (u32)firmType, firmVersion, res, twlBlobShift);
+        sprintf(dbg, "patched firm=%u ver=%x res=%u shift=%x", (unsigned int)firmType, (unsigned int)firmVersion, (unsigned int)res, (unsigned int)twlBlobShift);
         dbgLog(dbg);
     }
 
