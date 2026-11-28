@@ -54,6 +54,20 @@ BootType bootType;
 u16 mcuFwVersion;
 u8 mcuConsoleInfo[9];
 
+// Dead-eMMC fork, diagnostics: append one line to sdmc:/luma/dbg_boot.txt (read it on the PC after a failed boot)
+extern u32 twlBlobShift;
+static void dbgLog(const char *line)
+{
+    static char log[2048];
+    u32 n = fileRead(log, "sdmc:/luma/dbg_boot.txt", 1500);
+    if(n > 1500) n = 0;
+    log[n] = 0;
+    u32 l = strlen(line);
+    memcpy(log + n, line, l);
+    log[n + l] = '\n';
+    fileWrite(log, "sdmc:/luma/dbg_boot.txt", n + l + 1);
+}
+
 void main(int argc, char **argv, u32 magicWord)
 {
     bool isFirmProtEnabled = true,
@@ -242,17 +256,6 @@ void main(int argc, char **argv, u32 magicWord)
         {
             nandType = FIRMWARE_SYSNAND;
 
-            // Dead-eMMC fork: SysNAND is unusable (all-zero CID), so "SysNAND" means the EmuNAND we booted from.
-            {
-                __attribute__((aligned(4))) u32 cid[4];
-                sdmmc_get_cid(true, cid);
-                if((cid[0] | cid[1] | cid[2] | cid[3]) == 0)
-                {
-                    nandType = FIRMWARE_EMUNAND;
-                    emunandIndex = BOOTCFG_EMUINDEX;
-                }
-            }
-
             // Prevent multiple boot options-forcing
             // This bit is a bit weird. Basically, as you return to HOME Menu by pressing either
             // the HOME or POWER button, nandType will be overridden to "SysNAND" (needed). But,
@@ -371,6 +374,19 @@ void main(int argc, char **argv, u32 magicWord)
 
 boot:
 
+    // Dead-eMMC fork: SysNAND can't work with a dead eMMC (all-zero CID), whatever path got us here (for example
+    // the forced SysNAND boot after quitting DS Mode / GBA mode). Always fall back to the default EmuNAND.
+    if(nandType == FIRMWARE_SYSNAND)
+    {
+        __attribute__((aligned(4))) u32 deadCid[4];
+        sdmmc_get_cid(true, deadCid);
+        if((deadCid[0] | deadCid[1] | deadCid[2] | deadCid[3]) == 0)
+        {
+            nandType = FIRMWARE_EMUNAND;
+            emunandIndex = MULTICONFIG(DEFAULTEMU);
+        }
+    }
+
     //If we need to boot EmuNAND, make sure it exists
     if(nandType != FIRMWARE_SYSNAND)
     {
@@ -385,6 +401,12 @@ boot:
     {
         configData.bootConfig = ((bootType == NTR ? 1 : 0) << 4) | ((u32)isNoForceFlagSet << 3) | ((u32)emunandIndex << 1) | (u32)nandType;
         writeConfig(false);
+    }
+
+    {
+        char dbg[128];
+        sprintf(dbg, "boot type=%u bootenv=%u tid=%x firm=%u nand=%u emu=%u", (u32)bootType, (u32)CFG_BOOTENV, firmlaunchTidLow, (u32)firmType, (u32)nandType, emunandIndex);
+        dbgLog(dbg);
     }
 
     bool loadFromStorage = CONFIG(LOADEXTFIRMSANDMODULES);
@@ -413,6 +435,12 @@ boot:
         case NATIVE_PROTOTYPE:
             res = patchPrototypeNative(nandType, doUnitinfoPatch);
             break;
+    }
+
+    {
+        char dbg[128];
+        sprintf(dbg, "patched firm=%u ver=%x res=%u shift=%x", (u32)firmType, firmVersion, res, twlBlobShift);
+        dbgLog(dbg);
     }
 
     if(res != 0) error("Failed to apply %u FIRM patch(es).", res);
