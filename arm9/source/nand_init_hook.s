@@ -76,9 +76,14 @@ nandInitHookCid:       .word 0, 0, 0, 0
 .global nandInitHookTwl
 nandInitHookTwl:
     push {r12, lr}
-    ldr r12, =0xFF0000              @ DIAG: red = init(eMMC) called
+    ldr r12, =0x8000FF              @ DIAG: purple = init(other device) called
     cmp r0, #0x100
     ldreq r12, =0xFF6000            @ DIAG: orange = init(SD card) called
+    push {r1}
+    ldr r1, =0x101
+    cmp r0, r1
+    ldreq r12, =0xFF0000            @ DIAG: red = init(eMMC) called
+    pop {r1}
     bl ledMarkRaw
     pop {r12, lr}
 
@@ -121,9 +126,12 @@ nandInitHookTwl:
 nandInitHookTwlAfter:               @ reached through the function's pop {..., pc} (ARM state)
     adr r1, nandInitHookTwlSaved
     ldr r2, [r1, #4]                @ device id
-    ldr r12, =0x00FF00              @ DIAG: green = init(eMMC) returned
+    ldr r12, =0x00FFFF              @ DIAG: cyan = init(other device) returned
     cmp r2, #0x100
     ldreq r12, =0xFFFFFF            @ DIAG: white = init(SD card) returned
+    ldr r3, =0x101
+    cmp r2, r3
+    ldreq r12, =0x00FF00            @ DIAG: green = init(eMMC) returned
     bl ledMarkRaw
     ldr r3, [r1]                    @ caller's return address
     ldr r1, =0x101
@@ -220,6 +228,10 @@ ledMarkRaw:
     mov r2, sp
     mov r3, #100
     blx r5
+    ldr r0, =40000000               @ DIAG: hold each colour for about a second so none is missed
+2:
+    subs r0, r0, #1
+    bne 2b
 9:
     mov sp, r6
     msr cpsr_f, r4
@@ -246,9 +258,6 @@ ledRwCheck:
     str r1, [r3]
     cmp r1, #1
     ldreq r12, =0x0000FF            @ DIAG: blue = first NAND access
-    beq 7f
-    cmp r1, #300
-    ldreq r12, =0x00FFFF            @ DIAG: cyan = 300 NAND accesses
     beq 7f
     b 8f
 5:
