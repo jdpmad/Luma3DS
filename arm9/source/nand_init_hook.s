@@ -75,6 +75,10 @@ nandInitHookCid:       .word 0, 0, 0, 0
 @ ---------------------------------------------------------------------------------------------
 .global nandInitHookTwl
 nandInitHookTwl:
+    push {r12, lr}
+    ldr r12, =0xFF0000              @ DIAG: red = init(id) called
+    bl ledMarkRaw
+    pop {r12, lr}
     push {r2, r3, r4, r5, r6, lr}   @ original prologue
     adr r1, nandInitHookTwlSaved
     str lr, [r1]                    @ caller's return address
@@ -89,6 +93,10 @@ nandInitHookTwl:
 
 .align 2
 nandInitHookTwlAfter:               @ reached through the function's pop {..., pc} (ARM state)
+    push {r12, lr}
+    ldr r12, =0x00FF00              @ DIAG: green = init(id) returned
+    bl ledMarkRaw
+    pop {r12, lr}
     adr r1, nandInitHookTwlSaved
     ldr r2, [r1, #4]                @ device id
     ldr r3, [r1]                    @ caller's return address
@@ -137,6 +145,82 @@ _nandTwlOut:
 nandInitHookTwlCfg:    .word 0
 nandInitHookTwlResume: .word 0
 nandInitHookTwlSaved:  .word 0, 0
+
+
+@ ---------------------------------------------------------------------------------------------
+@ DS Mode diagnostics: show progress on the notification LED. Uses Luma's own I2C code (still in ITCM).
+@ ---------------------------------------------------------------------------------------------
+.global ledI2cFunc, ledEnabled, ledCount
+ledI2cFunc: .word 0
+ledEnabled: .word 0
+ledCount:   .word 0
+
+@ r12 = 0x00RRGGBB ; preserves all registers and the flags
+ledMarkRaw:
+    stmfd sp!, {r0-r12, lr}
+    mrs r4, cpsr
+    mov r6, sp
+    sub sp, sp, #112
+    bic sp, sp, #7
+    ldr r5, ledI2cFunc
+    cmp r5, #0
+    beq 9f
+    ldr r0, =0x00FF0020
+    str r0, [sp]
+    mov r1, r12, lsr #16
+    and r1, r1, #0xFF
+    mov r2, r12, lsr #8
+    and r2, r2, #0xFF
+    and r3, r12, #0xFF
+    mov r0, #0
+1:
+    add r7, sp, #4
+    strb r1, [r7, r0]
+    add r7, r7, #32
+    strb r2, [r7, r0]
+    add r7, r7, #32
+    strb r3, [r7, r0]
+    add r0, r0, #1
+    cmp r0, #32
+    blo 1b
+    mov r0, #3                      @ I2C_DEV_MCU
+    mov r1, #0x2D                   @ notification LED pattern
+    mov r2, sp
+    mov r3, #100
+    blx r5
+9:
+    mov sp, r6
+    msr cpsr_f, r4
+    ldmfd sp!, {r0-r12, lr}
+    bx lr
+.pool
+
+@ called at the start of every emuNAND read/write redirect; only active in DS Mode
+ledRwCheck:
+    push {r0, r1, r2, r12, lr}
+    ldr r0, ledEnabled
+    cmp r0, #0
+    beq 8f
+    adr r2, ledCount
+    ldr r1, [r2]
+    add r1, r1, #1
+    str r1, [r2]
+    cmp r1, #1
+    ldreq r12, =0x0000FF            @ DIAG: blue = first NAND access redirected
+    beq 7f
+    cmp r1, #300
+    ldreq r12, =0xFFFFFF            @ DIAG: white = 300 NAND accesses
+    beq 7f
+    ldr r0, =3000
+    cmp r1, r0
+    ldreq r12, =0x00FFFF            @ DIAG: cyan = 3000 NAND accesses
+    bne 8f
+7:
+    bl ledMarkRaw
+8:
+    pop {r0, r1, r2, r12, lr}
+    bx lr
+.pool
 
 .align 2
 .global emunandBlobEnd

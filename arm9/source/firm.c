@@ -25,6 +25,7 @@
 */
 
 #include "firm.h"
+#include "i2c.h"
 #include "config.h"
 #include "utils.h"
 #include "fs.h"
@@ -648,6 +649,7 @@ u32 patchNativeFirm(u32 firmVersion, FirmwareSource nandType, bool loadFromStora
     return ret;
 }
 
+extern u32 ledEnabled, ledI2cFunc;
 extern u32 prepareTwlBlob(void), patchTwlItcmClear(u8 *pos, u32 size, u32 process9MemAddr);
 extern void copyTwlBlob(void);
 
@@ -699,7 +701,16 @@ u32 patchTwlFirm(u32 firmVersion, FirmwareSource nandType, bool loadFromStorage,
             twlRet += patchTwlItcmClear(process9Offset, process9Size, process9MemAddr);
             twlRet += patchTwlEmuNand(process9Offset, process9Size, process9MemAddr);
             twlRet += patchTwlNandInitFailure(process9Offset, process9Size, process9MemAddr);
-            if(twlRet == 0) copyTwlBlob();
+            if(twlRet == 0)
+            {
+                ledEnabled = 1;
+                ledI2cFunc = (u32)I2C_writeRegBuf;
+                static const u8 yellow[100] = {0x20, 0x00, 0xFF, 0x00,
+                    255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
+                    255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255};
+                I2C_writeRegBuf(I2C_DEV_MCU, 0x2D, yellow, sizeof(yellow));  // DIAG: yellow = patched, about to start DS Mode
+                copyTwlBlob();
+            }
             ret += twlRet;
         }
     }

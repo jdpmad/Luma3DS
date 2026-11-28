@@ -13,6 +13,11 @@ emunandPatch:
     mov r6, r3
     @ End
 
+    @ Dead-eMMC fork, DS Mode diagnostics (no-op unless enabled)
+    push {lr}
+    bl ledRwCheck
+    pop {lr}
+
     @ If we're already trying to access the SD, return
     ldr r2, [r0, #4]
     ldr r1, emunandPatchSdmmcStructPtr
