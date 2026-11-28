@@ -196,6 +196,7 @@ ledMarkRaw:
 .pool
 
 @ called at the start of every emuNAND read/write redirect; only active in DS Mode
+.global ledRwCheck
 ledRwCheck:
     push {r0, r1, r2, r12, lr}
     ldr r0, ledEnabled
