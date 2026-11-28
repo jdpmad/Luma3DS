@@ -99,6 +99,12 @@ nandInitHookTwl:
     blx r1                          @ init(SD card)
     pop {r0, lr}
 1:
+    @ While the eMMC itself is being initialized, its accesses (e.g. EXT_CSD) must reach the real eMMC,
+    @ not be redirected to the SD card (that hung DS Mode).
+    ldr r1, =0x101
+    cmp r0, r1
+    moveq r1, #1
+    streq r1, twlNoRedirect
     push {r2, r3, r4, r5, r6, lr}   @ original prologue
     adr r1, nandInitHookTwlSaved
     str lr, [r1]                    @ caller's return address
@@ -123,6 +129,8 @@ nandInitHookTwlAfter:               @ reached through the function's pop {..., p
     ldr r1, =0x101
     cmp r2, r1
     bxne r3                         @ not the eMMC: keep the original result
+    mov r1, #0
+    str r1, twlNoRedirect           @ eMMC init done: redirect NAND accesses to the SD card again
 
     push {r3, r4}
     mov r0, r2
@@ -177,6 +185,7 @@ ledI2cFunc: .word 0
 ledEnabled: .word 0
 ledCount:   .word 0
 ledSdCount: .word 0
+twlNoRedirect: .word 0
 
 @ r12 = 0x00RRGGBB ; preserves all registers and the flags
 ledMarkRaw:
@@ -221,7 +230,11 @@ ledMarkRaw:
 @ called at the start of every emuNAND read/write redirect; only active in DS Mode
 .global ledRwCheck
 ledRwCheck:
-    push {r0, r1, r2, r3, r12, lr}
+    push {r0, r2, r3, r12, lr}
+    ldr r3, twlNoRedirect
+    cmp r3, #0
+    movne r1, #1
+    bne 9f
     ldr r0, ledEnabled
     cmp r0, #0
     beq 8f
@@ -249,7 +262,9 @@ ledRwCheck:
 7:
     bl ledMarkRaw
 8:
-    pop {r0, r1, r2, r3, r12, lr}
+    mov r1, #0
+9:
+    pop {r0, r2, r3, r12, lr}
     bx lr
 .pool
 

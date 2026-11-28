@@ -17,8 +17,10 @@ emunandPatch:
     push {lr}
     ldr r2, [r0, #4]                @ device being accessed
     ldr r1, emunandPatchSdmmcStructPtr
-    bl ledRwCheck                   @ r1 = SD card device, r2 = accessed device
+    bl ledRwCheck                   @ r1 = SD card device, r2 = accessed device; returns r1 != 0: don't redirect
     pop {lr}
+    cmp r1, #0
+    bne out                         @ DS Mode eMMC init in progress: let it talk to the real eMMC
 
     @ If we're already trying to access the SD, return
     ldr r2, [r0, #4]
