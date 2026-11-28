@@ -251,6 +251,75 @@ emunandProtoPatch1200:
 
 .pool
 
+@ ---------------------------------------------------------------------------------------------
+@ Dead-eMMC fork: EmuNAND redirection for TWL_FIRM (DS Mode).
+@ TWL's read/write request is {vtable, device object, sector}, and the device object is a C++ object
+@ (vtable at +0, device id at +0x20, 0x101 = eMMC, 0x100 = SD card), not the sdmmc driver struct that
+@ NATIVE_FIRM uses. Putting the driver struct there made DS Mode read a garbage id and stop (v35..v45).
+@ So we build our own device object: a copy of the eMMC one with the id changed to the SD card's.
+@ ---------------------------------------------------------------------------------------------
+.global emunandPatchTwl
+emunandPatchTwl:
+    mov r4, r0
+    mov r5, r1
+    mov r7, r2
+    mov r6, r3
+
+    push {lr}
+    adr r1, twlFakeDev
+    ldr r2, [r0, #4]
+    bl ledRwCheck                   @ diagnostics; returns r1 != 0 while the eMMC itself is being initialized
+    pop {lr}
+    cmp r1, #0
+    bne _twlOut
+
+    ldr r2, [r0, #4]                @ device object
+    adr r1, twlFakeDev
+    cmp r2, r1
+    beq _twlOut
+    ldr r3, [r2, #0x20]
+    and r3, r3, #0xFF
+    cmp r3, #1                      @ only the eMMC (id 0x101)
+    bne _twlOut
+
+    ldr r3, twlFakeReady
+    cmp r3, #0
+    bne 2f
+    mov r3, #0                      @ first time: copy the eMMC device object
+1:
+    ldr r12, [r2, r3]
+    str r12, [r1, r3]
+    add r3, r3, #4
+    cmp r3, #0x100
+    blo 1b
+    ldr r3, [r1, #0x20]
+    bic r3, r3, #0xFF               @ id 0x101 -> 0x100 (SD card)
+    str r3, [r1, #0x20]
+    mov r3, #1
+    str r3, twlFakeReady
+2:
+    str r1, [r0, #4]                @ use our SD card device object
+
+    ldr r2, [r0, #8]                @ sector
+    cmp r2, #0
+    ldr r3, emunandPatchNandOffset
+    add r2, r3
+    ldreq r3, emunandPatchNcsdHeaderOffset
+    addeq r2, r3
+    str r2, [r0, #8]
+
+_twlOut:
+    mov r1, r5
+    mov r2, r7
+    mov r3, r6
+    mov r0, lr
+    add r0, #4
+    bx r0
+
+.balign 4
+twlFakeReady: .word 0
+twlFakeDev:   .space 0x100
+
 .global emunandPatchSdmmcStructPtr
 .global emunandPatchNandOffset
 .global emunandPatchNcsdHeaderOffset

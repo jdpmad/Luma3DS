@@ -259,6 +259,9 @@ ledRwCheck:
     cmp r1, #1
     ldreq r12, =0x0000FF            @ DIAG: blue = first NAND access
     beq 7f
+    cmp r1, #100
+    ldreq r12, =0xFF0080            @ DIAG: pink = 100 NAND accesses
+    beq 7f
     b 8f
 5:
     adr r3, ledSdCount              @ direct SD card access

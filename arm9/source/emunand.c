@@ -441,7 +441,8 @@ u32 patchTwlEmuNand(u8 *process9Offset, u32 process9Size, u32 process9MemAddr)
     emunandPatchNandOffset = emuOffset;
     emunandPatchNcsdHeaderOffset = emuHeader;
 
-    return patchNandRw(process9Offset, process9Size, (u32)emunandPatch + twlBlobShift);
+    extern u8 emunandPatchTwl[];
+    return patchNandRw(process9Offset, process9Size, (u32)emunandPatchTwl + twlBlobShift);
 }
 
 u32 patchProtoEmuNand(u8 *process9Offset, u32 process9Size)
