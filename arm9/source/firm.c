@@ -648,6 +648,9 @@ u32 patchNativeFirm(u32 firmVersion, FirmwareSource nandType, bool loadFromStora
     return ret;
 }
 
+extern u32 prepareTwlBlob(void), patchTwlItcmClear(u8 *pos, u32 size, u32 process9MemAddr);
+extern void copyTwlBlob(void);
+
 u32 patchTwlFirm(u32 firmVersion, FirmwareSource nandType, bool loadFromStorage, bool doUnitinfoPatch)
 {
     u8 *section1 = (u8 *)firm + firm->section[1].offset;
@@ -692,8 +695,12 @@ u32 patchTwlFirm(u32 firmVersion, FirmwareSource nandType, bool loadFromStorage,
         sdmmc_get_cid(true, cid);
         if((cid[0] | cid[1] | cid[2] | cid[3]) == 0)
         {
-            ret += patchTwlEmuNand(process9Offset, process9Size, process9MemAddr);
-            ret += patchTwlNandInitFailure(process9Offset, process9Size, process9MemAddr);
+            u32 twlRet = prepareTwlBlob();
+            twlRet += patchTwlItcmClear(process9Offset, process9Size, process9MemAddr);
+            twlRet += patchTwlEmuNand(process9Offset, process9Size, process9MemAddr);
+            twlRet += patchTwlNandInitFailure(process9Offset, process9Size, process9MemAddr);
+            if(twlRet == 0) copyTwlBlob();
+            ret += twlRet;
         }
     }
 

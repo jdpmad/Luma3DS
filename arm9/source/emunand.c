@@ -417,6 +417,8 @@ u32 patchEmuNand(u8 *process9Offset, u32 process9Size, u32 firmVersion)
     return ret;
 }
 
+extern u32 twlBlobShift;
+
 // Dead-eMMC fork: EmuNAND redirection for TWL_FIRM (DS Mode), whose Process9 uses the same read/write functions
 // as NATIVE_FIRM's. The SD card's device struct is one of the two literals of its "device struct by id" getter.
 u32 patchTwlEmuNand(u8 *process9Offset, u32 process9Size, u32 process9MemAddr)
@@ -439,7 +441,7 @@ u32 patchTwlEmuNand(u8 *process9Offset, u32 process9Size, u32 process9MemAddr)
     emunandPatchNandOffset = emuOffset;
     emunandPatchNcsdHeaderOffset = emuHeader;
 
-    return patchNandRw(process9Offset, process9Size, (u32)emunandPatch);
+    return patchNandRw(process9Offset, process9Size, (u32)emunandPatch + twlBlobShift);
 }
 
 u32 patchProtoEmuNand(u8 *process9Offset, u32 process9Size)

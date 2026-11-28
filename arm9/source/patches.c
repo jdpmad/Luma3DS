@@ -411,6 +411,69 @@ u32 patchNandInitFailure(u8 *pos, u32 size, u32 process9MemAddr)
 extern u8 nandInitHookTwl[];
 extern u32 nandInitHookTwlCfg, nandInitHookTwlResume;
 
+// Dead-eMMC fork: TWL_FIRM's Process9 clears ITCM at 0x01FF8000 (0x4000 bytes) when it starts and copies its own
+// code there, which erased our hook code (it lives at the start of ITCM). So for DS Mode:
+//  - we shrink that clearing to 0x200 bytes (TWL's own code is 0x1EC bytes),
+//  - we copy our hook code (with its data) to a free ITCM area behind Luma's own, and point the patches there.
+extern u8 emunandBlobStart[], emunandBlobEnd[], __itcm_end__[];
+u32 twlBlobShift = 0;
+static u32 twlBlobSize = 0;
+
+static u32 twlBlobSrc(void)
+{
+    u32 a = (u32)emunandPatch, b = (u32)emunandBlobStart;
+    return a < b ? a : b;
+}
+
+u32 prepareTwlBlob(void)
+{
+    u32 src = twlBlobSrc();
+    u32 end1 = (u32)emunandBlobEnd, end2 = (u32)emunandPatch + 0x240;
+    u32 end = end1 > end2 ? end1 : end2;
+    twlBlobSize = end - src;
+
+    u32 dest = ((u32)__itcm_end__ + 0xFF) & ~0xFFu;
+    if(dest < 0x01FF8400u || dest + twlBlobSize > 0x01FFA800u) return 1;  // must be free in both Luma's and TWL's ITCM
+    twlBlobShift = dest - src;
+    return 0;
+}
+
+// call after all data words of the blob have been filled in
+void copyTwlBlob(void)
+{
+    u32 src = twlBlobSrc();
+    memcpy((void *)(src + twlBlobShift), (void *)src, twlBlobSize);
+}
+
+// TWL Process9 start-up: ldr r4, =0x01FF8000 ; movs r1, #1 ; lsls r1, r1, #0xE ; movs r0, r4 ; bl memclr(r0, r1)
+u32 patchTwlItcmClear(u8 *pos, u32 size, u32 process9MemAddr)
+{
+    static const u8 pattern[] = {0x01, 0x21, 0x89, 0x03, 0x20, 0x00};
+
+    u8 *p = pos;
+    u32 left = size;
+    for(;;)
+    {
+        u8 *found = memsearch(p, pattern, left, sizeof(pattern));
+        if(found == NULL) return 1;
+
+        u16 *h = (u16 *)found;
+        u16 ldr = h[-1];
+        if((ldr & 0xFF00) == 0x4C00)  // ldr r4, [pc, #x]
+        {
+            u32 va = process9MemAddr + (u32)(found - pos) - 2;
+            u32 litOff = (((va + 4) & ~3u) + ((u32)(ldr & 0xFF) << 2)) - process9MemAddr;
+            if(litOff + 4 <= size && *(u32 *)(pos + litOff) == 0x01FF8000u)
+            {
+                h[1] = 0x0249;  // lsls r1, r1, #9  -> clear 0x200 bytes
+                return 0;
+            }
+        }
+        left -= (u32)(found + 1 - p);
+        p = found + 1;
+    }
+}
+
 // Same as patchNandInitFailure, for TWL_FIRM (DS Mode). Only call it when the eMMC is dead.
 u32 patchTwlNandInitFailure(u8 *pos, u32 size, u32 process9MemAddr)
 {
@@ -456,7 +519,7 @@ u32 patchTwlNandInitFailure(u8 *pos, u32 size, u32 process9MemAddr)
     // replace the first 8 bytes of init(id) with: ldr r1, [pc, #0] ; bx r1 ; .word nandInitHookTwl
     u16 *t = (u16 *)site;
     t[0] = 0x4900; t[1] = 0x4708;
-    *(u32 *)(site + 4) = (u32)nandInitHookTwl;
+    *(u32 *)(site + 4) = (u32)nandInitHookTwl + twlBlobShift;
 
     return 0;
 }

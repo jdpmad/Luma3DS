@@ -11,6 +11,9 @@
 .arm
 .align 4
 
+.global emunandBlobStart
+emunandBlobStart:
+
 .global nandInitHook
 nandInitHook:
     push {r4, lr}
@@ -134,3 +137,7 @@ _nandTwlOut:
 nandInitHookTwlCfg:    .word 0
 nandInitHookTwlResume: .word 0
 nandInitHookTwlSaved:  .word 0, 0
+
+.align 2
+.global emunandBlobEnd
+emunandBlobEnd:
