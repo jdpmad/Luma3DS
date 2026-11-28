@@ -15,7 +15,9 @@ emunandPatch:
 
     @ Dead-eMMC fork, DS Mode diagnostics (no-op unless enabled)
     push {lr}
-    bl ledRwCheck
+    ldr r2, [r0, #4]                @ device being accessed
+    ldr r1, emunandPatchSdmmcStructPtr
+    bl ledRwCheck                   @ r1 = SD card device, r2 = accessed device
     pop {lr}
 
     @ If we're already trying to access the SD, return

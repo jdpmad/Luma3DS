@@ -76,7 +76,9 @@ nandInitHookCid:       .word 0, 0, 0, 0
 .global nandInitHookTwl
 nandInitHookTwl:
     push {r12, lr}
-    ldr r12, =0xFF0000              @ DIAG: red = init(id) called
+    ldr r12, =0xFF0000              @ DIAG: red = init(eMMC) called
+    cmp r0, #0x100
+    ldreq r12, =0xFF6000            @ DIAG: orange = init(SD card) called
     bl ledMarkRaw
     pop {r12, lr}
     push {r2, r3, r4, r5, r6, lr}   @ original prologue
@@ -93,12 +95,12 @@ nandInitHookTwl:
 
 .align 2
 nandInitHookTwlAfter:               @ reached through the function's pop {..., pc} (ARM state)
-    push {r12, lr}
-    ldr r12, =0x00FF00              @ DIAG: green = init(id) returned
-    bl ledMarkRaw
-    pop {r12, lr}
     adr r1, nandInitHookTwlSaved
     ldr r2, [r1, #4]                @ device id
+    ldr r12, =0x00FF00              @ DIAG: green = init(eMMC) returned
+    cmp r2, #0x100
+    ldreq r12, =0xFFFFFF            @ DIAG: white = init(SD card) returned
+    bl ledMarkRaw
     ldr r3, [r1]                    @ caller's return address
     ldr r1, =0x101
     cmp r2, r1
@@ -154,6 +156,7 @@ nandInitHookTwlSaved:  .word 0, 0
 ledI2cFunc: .word 0
 ledEnabled: .word 0
 ledCount:   .word 0
+ledSdCount: .word 0
 
 @ r12 = 0x00RRGGBB ; preserves all registers and the flags
 ledMarkRaw:
@@ -198,28 +201,35 @@ ledMarkRaw:
 @ called at the start of every emuNAND read/write redirect; only active in DS Mode
 .global ledRwCheck
 ledRwCheck:
-    push {r0, r1, r2, r12, lr}
+    push {r0, r1, r2, r3, r12, lr}
     ldr r0, ledEnabled
     cmp r0, #0
     beq 8f
-    adr r2, ledCount
-    ldr r1, [r2]
+    cmp r1, r2
+    beq 5f
+    adr r3, ledCount                @ NAND (eMMC) access, redirected to the SD card
+    ldr r1, [r3]
     add r1, r1, #1
-    str r1, [r2]
+    str r1, [r3]
     cmp r1, #1
-    ldreq r12, =0x0000FF            @ DIAG: blue = first NAND access redirected
+    ldreq r12, =0x0000FF            @ DIAG: blue = first NAND access
     beq 7f
     cmp r1, #300
-    ldreq r12, =0xFFFFFF            @ DIAG: white = 300 NAND accesses
+    ldreq r12, =0x00FFFF            @ DIAG: cyan = 300 NAND accesses
     beq 7f
-    ldr r0, =3000
-    cmp r1, r0
-    ldreq r12, =0x00FFFF            @ DIAG: cyan = 3000 NAND accesses
+    b 8f
+5:
+    adr r3, ledSdCount              @ direct SD card access
+    ldr r1, [r3]
+    add r1, r1, #1
+    str r1, [r3]
+    cmp r1, #1
+    ldreq r12, =0xFF00FF            @ DIAG: magenta = first direct SD card access
     bne 8f
 7:
     bl ledMarkRaw
 8:
-    pop {r0, r1, r2, r12, lr}
+    pop {r0, r1, r2, r3, r12, lr}
     bx lr
 .pool
 
