@@ -242,6 +242,17 @@ void main(int argc, char **argv, u32 magicWord)
         {
             nandType = FIRMWARE_SYSNAND;
 
+            // Dead-eMMC fork: SysNAND is unusable (all-zero CID), so "SysNAND" means the EmuNAND we booted from.
+            {
+                __attribute__((aligned(4))) u32 cid[4];
+                sdmmc_get_cid(true, cid);
+                if((cid[0] | cid[1] | cid[2] | cid[3]) == 0)
+                {
+                    nandType = FIRMWARE_EMUNAND;
+                    emunandIndex = BOOTCFG_EMUINDEX;
+                }
+            }
+
             // Prevent multiple boot options-forcing
             // This bit is a bit weird. Basically, as you return to HOME Menu by pressing either
             // the HOME or POWER button, nandType will be overridden to "SysNAND" (needed). But,
@@ -359,19 +370,6 @@ void main(int argc, char **argv, u32 magicWord)
     }
 
 boot:
-
-    // Dead-eMMC fork: SysNAND can't work with a dead eMMC (all-zero CID), whatever path got us here (for example
-    // the forced SysNAND boot after quitting DS Mode / GBA mode). Always fall back to the default EmuNAND.
-    if(nandType == FIRMWARE_SYSNAND)
-    {
-        __attribute__((aligned(4))) u32 deadCid[4];
-        sdmmc_get_cid(true, deadCid);
-        if((deadCid[0] | deadCid[1] | deadCid[2] | deadCid[3]) == 0)
-        {
-            nandType = FIRMWARE_EMUNAND;
-            emunandIndex = MULTICONFIG(DEFAULTEMU);
-        }
-    }
 
     //If we need to boot EmuNAND, make sure it exists
     if(nandType != FIRMWARE_SYSNAND)
